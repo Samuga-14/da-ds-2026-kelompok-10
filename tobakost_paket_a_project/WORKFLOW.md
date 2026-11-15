@@ -11,26 +11,34 @@ digunakan dengan data riil. Prinsip utamanya:
 ## Gambaran Besar
 
 ```text
-FASE A — DATA DUMMY
-Data dummy
-   -> ETL awal
-   -> Warehouse dummy
-   -> EDA awal
-   -> Training baseline
-   -> API + dashboard prototype
-   -> Pengujian end-to-end
-
-FASE B — DATA RIIL
-Data riil mentah
-   -> Profiling dan data quality check
-   -> Cleaning terdokumentasi
-   -> EDA data riil
-   -> ETL staging
-   -> Warehouse versi baru
-   -> Retraining dan evaluasi model
-   -> UAT/API/dashboard
-   -> Release data riil
+SUMBER DATA RIIL
+   -> raw (simpan asli, tidak diedit)
+   -> profiling dan data quality report
+   -> cleaning + standardisasi
+   -> staging tervalidasi
+   -> ETL ke star schema warehouse
+   -> data mart / API
+        -> dashboard visualisasi
+   -> feature dataset
+        -> training, evaluasi, dan registry model
+             -> API prediksi
 ```
+
+### Jawaban singkat: apakah harus rombak ulang?
+
+Tidak harus mengulang proyek dari nol. Data dummy dipakai untuk membuat prototype, kontrak
+kolom, ERD awal, API, dan dashboard. Saat data riil masuk, yang wajib diulang adalah profiling,
+cleaning, validasi, EDA, dan training. Star schema, API, dan visualisasi hanya perlu diubah jika
+struktur atau arti kolom data riil memang berbeda.
+
+Yang harus dipisahkan:
+
+- **Warehouse** menyimpan data terstruktur untuk analitik dan dashboard.
+- **Feature dataset** mengambil kolom yang sudah tervalidasi untuk machine learning.
+- **Model** tidak membaca file raw dan tidak membaca database secara langsung saat training.
+- **Frontend** tidak membaca database; frontend hanya memanggil API.
+
+Urutan kerja ini menghindari data kotor masuk ke dashboard atau menjadi sumber training.
 
 ## Tools yang Dipakai
 
@@ -275,6 +283,10 @@ Sebelum data riil dikumpulkan, pastikan:
 
 ## Fase B — Data Riil Masuk dalam Kondisi Kotor
 
+Fase ini adalah alur utama ketika tim sudah menerima data survei atau sumber eksternal.
+Kerjakan berurutan; jangan melompati profiling dan validasi hanya karena data terlihat
+seperti data dummy.
+
 ### B1. Menyimpan data riil tanpa menyentuh raw
 
 Buat versi data:
@@ -461,7 +473,55 @@ warehouse
 mart
 ```
 
+### B6a. Pilihan database
+
+Gunakan database berdasarkan tahap proyek, bukan mencampur semuanya:
+
+| Tahap | Database | Keterangan |
+|---|---|---|
+| Eksperimen lokal | SQLite | Mudah dijalankan satu orang dan cocok untuk dataset kecil |
+| Demo lokal tim | SQLite atau PostgreSQL | SQLite cukup jika hanya satu proses; PostgreSQL lebih aman untuk akses bersama |
+| Deployment data riil/multi-user | PostgreSQL | Pilihan utama karena transaksi, role, backup, dan akses bersamaan lebih baik |
+| File raw/staging | CSV atau Parquet | Bukan pengganti warehouse; dipakai untuk menyimpan input dan hasil transformasi |
+
+Rekomendasi proyek saat ini: tetap gunakan SQLite untuk prototype dan pengujian lokal, lalu
+gunakan PostgreSQL ketika aplikasi mulai dipakai bersama atau data riil menjadi sumber utama.
+Perpindahan database tidak boleh mengubah frontend; backend/API menjadi satu-satunya lapisan yang
+berbicara dengan database.
+
+### B6b. Urutan membangun star schema
+
+1. Tetapkan grain fact table, misalnya **satu baris = satu unit/kamar kos pada satu periode**.
+2. Tentukan dimensi seperti lokasi, spesifikasi kamar, fasilitas/aturan, dan kontrak sewa.
+3. Buat surrogate key pada dimensi.
+4. Muat dimensi terlebih dahulu.
+5. Muat fact table dengan foreign key dimensi.
+6. Buat view atau data mart untuk kebutuhan lima visualisasi.
+7. Jalankan pemeriksaan jumlah baris, null foreign key, duplicate key, dan total harga.
+
+Jangan menjadikan tabel fact sebagai tempat semua kolom mentah. Kolom mentah tetap dilacak di
+staging atau metadata sumber; warehouse menyimpan kolom terstandar yang memang dibutuhkan untuk
+analitik.
+
 ### B7. Retraining model dengan data riil
+
+Training dilakukan **setelah** staging tervalidasi dan definisi target disetujui. Dataset untuk
+training boleh dibuat dari hasil transformasi yang sama dengan warehouse, tetapi tidak berarti
+model harus melakukan query database pada setiap prediksi.
+
+Alur machine learning:
+
+```text
+staging tervalidasi / mart analitik
+   -> pilih target dan fitur
+   -> split train/validation/test
+   -> preprocessing dan feature engineering
+   -> baseline
+   -> eksperimen kandidat
+   -> evaluasi
+   -> model card + artifact + manifest
+   -> API prediksi
+```
 
 Model harus dilatih ulang jika:
 
@@ -496,6 +556,17 @@ model-v002
 Jangan menimpa `model-v001`. Model lama diperlukan untuk rollback dan perbandingan.
 
 ### B8. Validasi API dan dashboard dengan data riil
+
+Dashboard dan training dapat dikerjakan paralel setelah staging serta kontrak warehouse
+disepakati:
+
+```text
+warehouse/mart -> API analytics -> lima visualisasi frontend
+feature dataset -> model registry -> API prediction -> komponen ML frontend
+```
+
+Dengan demikian, dashboard tidak perlu menunggu model final untuk mulai dibuat, tetapi data yang
+ditampilkan harus berasal dari API dan kontrak kolomnya harus stabil.
 
 Uji:
 
@@ -550,6 +621,7 @@ Release harus menyebut:
 - Jalankan cleaning dan validation.
 - Retrain jika distribusi berubah.
 - Tidak selalu perlu mengubah DDL.
+- Dashboard biasanya tidak perlu dirombak; cukup refresh ETL, mart, dan cache jika ada.
 
 ### Kolom atau schema berubah
 
@@ -559,6 +631,7 @@ Release harus menyebut:
 - Update `models/features.py`.
 - Buat feature schema version baru.
 - Retrain dan uji API.
+- Ubah frontend hanya jika response API atau makna visualisasinya berubah.
 
 ### Target harga berubah
 
@@ -574,6 +647,17 @@ Release harus menyebut:
 - Jangan menimpa sumber lama.
 - Dokumentasikan join key dan potensi bias.
 - Validasi data sebelum digabung.
+
+### Tabel keputusan perubahan
+
+| Perubahan | Tindakan |
+|---|---|
+| Hanya jumlah baris bertambah | Jalankan ETL, validasi, refresh mart, dan retrain bila diperlukan |
+| Format tanggal/satuan/kategori berubah | Perbaiki transform dan validasi; DDL belum tentu berubah |
+| Nama kolom berubah tetapi maknanya sama | Mapping di extract/transform; pertahankan kontrak warehouse |
+| Dimensi atau relasi baru diperlukan | Review grain, ubah DDL/ERD, migrasi warehouse, lalu uji API |
+| Target harga berubah | Definisikan ulang masalah dan ulangi EDA, baseline, training, dan model card |
+| Data tidak memiliki target untuk harga | Data dapat dipakai untuk dashboard, tetapi tidak untuk supervised training harga |
 
 ## Checklist Singkat per Fase
 
