@@ -5,13 +5,13 @@ Judul: **Analisis Faktor Penentu Tarif dan Prediksi Harga Sewa Kos Menggunakan A
 
 ## Struktur Folder Proyek (Paket A Modular — Tanpa Streamlit)
 
-Repository ini juga menyediakan scaffold struktur akademik wajib pada folder `data/`, `etl/`,
+Repository ini menggunakan scaffold struktur akademik wajib pada folder `data/`, `etl/`,
 `warehouse/`, `notebooks/`, `models/`, `app/`, `paper/`, `reports/weekly/`, dan `docs/`.
-Implementasi prototype lama tetap dipertahankan sementara migrasi fisik ke `app/` dilakukan
-bertahap melalui Pull Request agar dashboard yang sedang dikembangkan tidak rusak.
+Kode prototype dan backend tetap dipertahankan dalam struktur yang sama agar dashboard dapat
+dijalankan tanpa migrasi folder tambahan.
 
 ```text
-tobakost_paket_a_project/
+da-ds-2026-kelompok-10/
 ├── server.py                              # Launcher kompatibilitas
 ├── backend/
 │   ├── main.py                             # Entrypoint backend berlapis
@@ -32,14 +32,14 @@ tobakost_paket_a_project/
 │   ├── staging/                            # Area transformasi/validasi sementara
 │   ├── warehouse/                          # Lokasi warehouse untuk deployment berikutnya
 │   ├── dummy_data_gform_kos_toba_600.csv  # Dataset survei Google Form 600 responden (36 kolom)
-│   └── tobakost_warehouse.db              # Database SQLite Star Schema (1 Tabel Fakta + 4 Tabel Dimensi + View)
+│   └── tobakost_warehouse.db              # Generated lokal oleh ETL (tidak di-commit)
 ├── etl/
 │   └── run_etl_star_schema.py             # Pipeline ETL otomatis (CSV Google Form -> SQLite Star Schema)
 └── models/
     ├── artifacts/                          # Artifact model hasil training
     └── registry/                           # Manifest versi model dan dataset
     ├── train_models.py                    # Skrip pelatihan & evaluasi 4 algoritma regresi Machine Learning
-    ├── best_rf_model.pkl                  # File model pre-trained siap pakai untuk inferensi cepat (<2 ms)
+    ├── best_rf_model.pkl                  # Generated lokal oleh training (tidak di-commit)
     └── metrics_summary.json               # Ringkasan metrik R2, MAE, RMSE, dan MAPE pada Test Set
 ```
 
@@ -56,7 +56,7 @@ Dokumen koordinasi:
 Buka terminal PowerShell, lalu jalankan perintah berikut satu per satu:
 
 ```powershell
-cd "D:\DASI DALIS\dasi-dalis-10\tobakost_paket_a_project"
+cd "D:\DASI DALIS\dasi-dalis-10"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -91,7 +91,7 @@ python -m pip install -r requirements.txt
 
 ### Opsi C — menjalankan dari VS Code
 
-1. Buka folder `tobakost_paket_a_project` di VS Code.
+1. Buka root repository `dasi-dalis-10` di VS Code.
 2. Pilih interpreter Python dari `.venv`.
 3. Buka [server.py](./server.py).
 4. Klik **Run Python File**.
