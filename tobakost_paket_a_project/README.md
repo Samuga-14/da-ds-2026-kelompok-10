@@ -32,14 +32,14 @@ tobakost_paket_a_project/
 │   ├── staging/                            # Area transformasi/validasi sementara
 │   ├── warehouse/                          # Lokasi warehouse untuk deployment berikutnya
 │   ├── dummy_data_gform_kos_toba_600.csv  # Dataset survei Google Form 600 responden (36 kolom)
-│   └── tobakost_warehouse.db              # Database SQLite Star Schema (1 Tabel Fakta + 4 Tabel Dimensi + View)
+│   └── tobakost_warehouse.db              # Generated lokal oleh ETL (tidak di-commit)
 ├── etl/
 │   └── run_etl_star_schema.py             # Pipeline ETL otomatis (CSV Google Form -> SQLite Star Schema)
 └── models/
     ├── artifacts/                          # Artifact model hasil training
     └── registry/                           # Manifest versi model dan dataset
     ├── train_models.py                    # Skrip pelatihan & evaluasi 4 algoritma regresi Machine Learning
-    ├── best_rf_model.pkl                  # File model pre-trained siap pakai untuk inferensi cepat (<2 ms)
+    ├── best_rf_model.pkl                  # Generated lokal oleh training (tidak di-commit)
     └── metrics_summary.json               # Ringkasan metrik R2, MAE, RMSE, dan MAPE pada Test Set
 ```
 

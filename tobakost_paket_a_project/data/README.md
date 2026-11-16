@@ -7,7 +7,8 @@ mengandung data sensitif.
 ## Data saat ini
 
 - Dataset dummy aktif: `../data/dummy_data_gform_kos_toba_600.csv`.
-- Warehouse dummy lokal: `../data/tobakost_warehouse.db`.
+- Warehouse dummy lokal dibuat ulang oleh `python etl/run_etl_star_schema.py` dan tidak
+  disimpan di Git.
 - Data riil nantinya masuk ke `raw/` dan tidak boleh ditimpa oleh ETL.
 
 Tambahkan sumber, tanggal pengambilan, lisensi/izin, checksum, dan pemilik data setiap kali

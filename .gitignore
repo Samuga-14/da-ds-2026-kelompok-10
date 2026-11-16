@@ -1,0 +1,20 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Generated local warehouse files
+tobakost_paket_a_project/data/*.db
+tobakost_paket_a_project/data/*.db-*
+
+# Generated machine-learning artifacts
+tobakost_paket_a_project/models/*.pkl
+tobakost_paket_a_project/models/*.joblib
+tobakost_paket_a_project/models/metrics_summary.json
+tobakost_paket_a_project/models/registry/*.json
+tobakost_paket_a_project/models/artifacts/*
+
+# Local secrets and runtime files
+.env
+*.log
