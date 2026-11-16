@@ -50,7 +50,7 @@ repository, dan API harus dirancang agar perpindahan database tidak mengubah fro
 Target struktur repository:
 
 ```text
-da-ds-2026-kelompok-XX/
+da-ds-2026-kelompok-10/
 ├── README.md
 ├── data/
 │   ├── sample/                         # Sampel kecil yang boleh di-commit
@@ -363,7 +363,7 @@ Jika proyek mulai memakai data riil atau diakses banyak pengguna, lakukan migras
 ## 13. Cara Menjalankan
 
 ```powershell
-cd "D:\DASI DALIS\dasi-dalis-10\tobakost_paket_a_project"
+cd "D:\DASI DALIS\dasi-dalis-10"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt

@@ -5,13 +5,13 @@ Judul: **Analisis Faktor Penentu Tarif dan Prediksi Harga Sewa Kos Menggunakan A
 
 ## Struktur Folder Proyek (Paket A Modular — Tanpa Streamlit)
 
-Repository ini juga menyediakan scaffold struktur akademik wajib pada folder `data/`, `etl/`,
+Repository ini menggunakan scaffold struktur akademik wajib pada folder `data/`, `etl/`,
 `warehouse/`, `notebooks/`, `models/`, `app/`, `paper/`, `reports/weekly/`, dan `docs/`.
-Implementasi prototype lama tetap dipertahankan sementara migrasi fisik ke `app/` dilakukan
-bertahap melalui Pull Request agar dashboard yang sedang dikembangkan tidak rusak.
+Kode prototype dan backend tetap dipertahankan dalam struktur yang sama agar dashboard dapat
+dijalankan tanpa migrasi folder tambahan.
 
 ```text
-tobakost_paket_a_project/
+da-ds-2026-kelompok-10/
 ├── server.py                              # Launcher kompatibilitas
 ├── backend/
 │   ├── main.py                             # Entrypoint backend berlapis
@@ -56,7 +56,7 @@ Dokumen koordinasi:
 Buka terminal PowerShell, lalu jalankan perintah berikut satu per satu:
 
 ```powershell
-cd "D:\DASI DALIS\dasi-dalis-10\tobakost_paket_a_project"
+cd "D:\DASI DALIS\dasi-dalis-10"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -91,7 +91,7 @@ python -m pip install -r requirements.txt
 
 ### Opsi C — menjalankan dari VS Code
 
-1. Buka folder `tobakost_paket_a_project` di VS Code.
+1. Buka root repository `dasi-dalis-10` di VS Code.
 2. Pilih interpreter Python dari `.venv`.
 3. Buka [server.py](./server.py).
 4. Klik **Run Python File**.
