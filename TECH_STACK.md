@@ -363,7 +363,7 @@ Jika proyek mulai memakai data riil atau diakses banyak pengguna, lakukan migras
 ## 13. Cara Menjalankan
 
 ```powershell
-cd "D:\DASI DALIS\dasi-dalis-10\tobakost_paket_a_project"
+cd "D:\DASI DALIS\dasi-dalis-10"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
