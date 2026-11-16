@@ -11,7 +11,7 @@ Kode prototype dan backend tetap dipertahankan dalam struktur yang sama agar das
 dijalankan tanpa migrasi folder tambahan.
 
 ```text
-da-ds-2026-kelompok-XX/
+da-ds-2026-kelompok-10/
 ├── server.py                              # Launcher kompatibilitas
 ├── backend/
 │   ├── main.py                             # Entrypoint backend berlapis

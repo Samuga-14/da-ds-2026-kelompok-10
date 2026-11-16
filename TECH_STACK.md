@@ -50,7 +50,7 @@ repository, dan API harus dirancang agar perpindahan database tidak mengubah fro
 Target struktur repository:
 
 ```text
-da-ds-2026-kelompok-XX/
+da-ds-2026-kelompok-10/
 ├── README.md
 ├── data/
 │   ├── sample/                         # Sampel kecil yang boleh di-commit
