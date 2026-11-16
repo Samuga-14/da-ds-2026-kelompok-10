@@ -5,15 +5,15 @@ __pycache__/
 *.egg-info/
 
 # Generated local warehouse files
-tobakost_paket_a_project/data/*.db
-tobakost_paket_a_project/data/*.db-*
+data/*.db
+data/*.db-*
 
 # Generated machine-learning artifacts
-tobakost_paket_a_project/models/*.pkl
-tobakost_paket_a_project/models/*.joblib
-tobakost_paket_a_project/models/metrics_summary.json
-tobakost_paket_a_project/models/registry/*.json
-tobakost_paket_a_project/models/artifacts/*
+models/*.pkl
+models/*.joblib
+models/metrics_summary.json
+models/registry/*.json
+models/artifacts/*
 
 # Local secrets and runtime files
 .env
