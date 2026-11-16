@@ -50,7 +50,7 @@ repository, dan API harus dirancang agar perpindahan database tidak mengubah fro
 Target struktur repository:
 
 ```text
-da-ds-2026-kelompok-XX/
+da-ds-2026-kelompok-10/
 ├── README.md
 ├── data/
 │   ├── sample/                         # Sampel kecil yang boleh di-commit
@@ -190,7 +190,7 @@ Jika `TOBAKOST_ADMIN_API_KEY` belum diatur, operasi tulis dinonaktifkan secara d
 ### Database saat ini
 
 - Database: SQLite.
-- File: `data/tobakost_warehouse.db`.
+- File lokal `data/tobakost_warehouse.db` dibuat oleh ETL dan tidak disimpan di Git.
 - Model data: star schema.
 - Tabel fakta: `fact_sewa_kos`.
 - Tabel dimensi:
@@ -264,9 +264,9 @@ dan inference menggunakan urutan fitur yang sama.
 
 | Artifact | Fungsi |
 |---|---|
-| `models/best_rf_model.pkl` | Bundle model dan seluruh model terlatih |
-| `models/metrics_summary.json` | Metrik evaluasi model |
-| `models/registry/model_manifest.json` | Versi model, fitur, dataset, dan scikit-learn |
+| `models/best_rf_model.pkl` | Bundle model dan seluruh model terlatih (generated lokal) |
+| `models/metrics_summary.json` | Metrik evaluasi model (generated lokal) |
+| `models/registry/model_manifest.json` | Versi model, fitur, dataset, dan scikit-learn (generated lokal) |
 | `models/artifacts/` | Lokasi artifact model untuk pengembangan berikutnya |
 
 Training ulang:
@@ -274,6 +274,9 @@ Training ulang:
 ```powershell
 python models/train_models.py
 ```
+
+Artifact database dan model sengaja di-ignore dari Git karena dapat dibuat ulang dari dataset
+dan source code. Repository menyimpan data sampel, DDL, dan kode pembuatnya.
 
 ## 8. Pembagian Kerja Lima Anggota
 
@@ -360,7 +363,7 @@ Jika proyek mulai memakai data riil atau diakses banyak pengguna, lakukan migras
 ## 13. Cara Menjalankan
 
 ```powershell
-cd "D:\DASI DALIS\dasi-dalis-10\tobakost_paket_a_project"
+cd "D:\DASI DALIS\dasi-dalis-10"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
