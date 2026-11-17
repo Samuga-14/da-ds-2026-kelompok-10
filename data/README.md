@@ -6,7 +6,10 @@ mengandung data sensitif.
 
 ## Data saat ini
 
-- Dataset dummy aktif: `../data/dummy_data_gform_kos_toba_600.csv`.
+- Dataset dummy aktif: `raw/dummy_baru.csv` jika `TOBAKOST_SOURCE_CSV` diarahkan ke
+  file tersebut; dataset lama `../data/dummy_data_gform_kos_toba_600.csv` tetap menjadi
+  fallback.
+- ETL menormalisasi ekspor Google Form baru ke schema kanonik tanpa mengubah file di `raw/`.
 - Warehouse dummy lokal dibuat ulang oleh `python etl/run_etl_star_schema.py` dan tidak
   disimpan di Git.
 - Data riil nantinya masuk ke `raw/` dan tidak boleh ditimpa oleh ETL.
