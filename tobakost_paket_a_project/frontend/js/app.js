@@ -42,6 +42,24 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       const m = mean(arr);
       return Math.sqrt(arr.reduce((acc, v) => acc + Math.pow(v - m, 2), 0) / (arr.length - 1));
     };
+    function linearTrend(rows, xKey, yKey) {
+      const points = rows
+        .map(row => ({ x: Number(row[xKey]), y: Number(row[yKey]) }))
+        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+      if (points.length < 2) return null;
+      const xMean = mean(points.map(point => point.x));
+      const yMean = mean(points.map(point => point.y));
+      const denominator = points.reduce((sum, point) => sum + Math.pow(point.x - xMean, 2), 0);
+      if (!denominator) return null;
+      const slope = points.reduce((sum, point) => sum + (point.x - xMean) * (point.y - yMean), 0) / denominator;
+      const intercept = yMean - slope * xMean;
+      const minX = Math.min(...points.map(point => point.x));
+      const maxX = Math.max(...points.map(point => point.x));
+      return {
+        x: [minX, maxX],
+        y: [slope * minX + intercept, slope * maxX + intercept]
+      };
+    }
 
     async function syncWithBackendApi() {
       let apiResponded = false;
@@ -529,7 +547,8 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         branchvalues: 'total',
         marker: {
           colors: avgPrices,
-          colorscale: 'Blues',
+          colorscale: [[0, '#eff6ff'], [0.35, '#bfdbfe'], [0.7, '#3b82f6'], [1, '#1e3a8a']],
+          reversescale: false,
           showscale: true,
           colorbar: { title: 'Rata-rata Rp', tickprefix: 'Rp ', tickformat: ',.0f' }
         },
@@ -557,37 +576,61 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       ].filter(Boolean);
       Plotly.react('plotBoxKecamatan', boxTraces, baseDarkLayout({ boxmode: 'group', yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' }, hovermode: 'closest' }), PLOTLY_CONFIG);
 
-      const sizes = [...new Set(rows.map(r => Number(r.luas_kamar_m2)).filter(size => Number.isFinite(size) && size > 0))].sort((a, b) => a - b);
-      const sizeTraces = CATEGORY_META.map(category => {
-        const groups = sizes.map(size => {
-          const groupRows = rows.filter(r => Number(r.luas_kamar_m2) === size && normalizeCategory(r.kategori_penghuni) === category.key);
-          return { size, rows: groupRows };
-        }).filter(group => group.rows.length > 0);
-        if (!groups.length) return null;
-        return {
-          x: groups.map(group => `${group.size} m²`),
-          y: groups.map(group => Math.round(mean(group.rows.map(r => r.harga_bulanan_norm)))),
-          customdata: groups.map(group => group.rows.length),
+      const areaRows = rows.filter(r => Number(r.luas_kamar_m2) > 0 && Number.isFinite(Number(r.harga_bulanan_norm)));
+      const sizeTraces = CATEGORY_META.flatMap(category => {
+        const categoryRows = areaRows.filter(r => normalizeCategory(r.kategori_penghuni) === category.key);
+        if (!categoryRows.length) return [];
+        return [{
+          x: categoryRows.map(r => Number(r.luas_kamar_m2)),
+          y: categoryRows.map(r => Number(r.harga_bulanan_norm)),
+          text: categoryRows.map(r => `${r.nama_kost} (${r.kecamatan})`),
+          customdata: categoryRows.map(r => [r.tipe_kamar_mandi, r.ac_non_ac, r.skor_kelengkapan_fasilitas]),
           name: category.label,
-          type: 'bar',
-          marker: { color: category.color },
-          hovertemplate: '<b>%{x}</b><br>Kategori: ' + category.label + '<br>Rata-rata tarif: Rp %{y:,.0f}/bln<br>Jumlah sampel: %{customdata}<extra></extra>'
-        };
-      }).filter(Boolean);
+          type: 'scatter',
+          mode: 'markers',
+          marker: { color: category.color, size: 8, opacity: 0.72 },
+          hovertemplate: '<b>%{text}</b><br>Luas: %{x:.1f} m<br>Tarif: Rp %{y:,.0f}/bln<br>KM: %{customdata[0]} · %{customdata[1]}<br>Skor fasilitas: %{customdata[2]}<extra>' + category.label + '</extra>'
+        }];
+      });
+      const overallTrend = linearTrend(areaRows, 'luas_kamar_m2', 'harga_bulanan_norm');
+      if (overallTrend) {
+        sizeTraces.push({
+          x: overallTrend.x,
+          y: overallTrend.y,
+          name: 'Garis tren keseluruhan',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: '#334155', width: 2, dash: 'dash' },
+          hovertemplate: 'Garis tren hubungan luas dan tarif<extra></extra>'
+        });
+      }
       Plotly.react('plotUkuranKamar', sizeTraces, baseDarkLayout({
-        barmode: 'group',
-        yaxis: { title: 'Rata-rata Tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
-        xaxis: { title: 'Luas kamar' },
+        xaxis: { title: 'Luas kamar (m)' },
+        yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
         hovermode: 'closest'
       }), PLOTLY_CONFIG);
 
-      const years = ['2023 atau sebelumnya', '2024', '2025', '2026'];
-      const bulByYr = years.map(y => Math.round(mean(rows.filter(r => String(r.tahun_mulai_sewa) === y && r.sewa_tahunan_bulanan === 'bulanan').map(r => r.harga_bulanan_norm))));
-      const tahByYr = years.map(y => Math.round(mean(rows.filter(r => String(r.tahun_mulai_sewa) === y && r.sewa_tahunan_bulanan === 'tahunan').map(r => r.harga_bulanan_norm))));
-      Plotly.react('plotTahunSewa', [
-        { x: years, y: bulByYr, name: 'Sewa Bulanan', type: 'scatter', mode: 'lines+markers', line: { color: '#3b82f6', width: 3 } },
-        { x: years, y: tahByYr, name: 'Kontrak Tahunan (Ekuivalen/Bln)', type: 'scatter', mode: 'lines+markers', line: { color: '#10b981', width: 3 } }
-      ], baseDarkLayout({ yaxis: { title: 'Rata-rata Tarif (Rp/Bln)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' } }), PLOTLY_CONFIG);
+      const tariffTypes = [
+        { label: 'Hemat', range: '< Rp700 ribu', max: 700000, color: '#60a5fa' },
+        { label: 'Standar', range: 'Rp700–900 ribu', min: 700000, max: 900000, color: '#2563eb' },
+        { label: 'Premium', range: '> Rp900 ribu', min: 900000, color: '#1e3a8a' }
+      ];
+      const tariffGroups = tariffTypes.map(type => {
+        const groupRows = rows.filter(r => r.harga_bulanan_norm >= (type.min ?? -Infinity) && r.harga_bulanan_norm < (type.max ?? Infinity));
+        return { ...type, rows: groupRows };
+      });
+      Plotly.react('plotTipeTarif', [{
+        x: tariffGroups.map(group => group.label),
+        y: tariffGroups.map(group => Math.round(mean(group.rows.map(r => r.harga_bulanan_norm)))),
+        text: tariffGroups.map(group => group.range),
+        customdata: tariffGroups.map(group => group.rows.length),
+        type: 'bar',
+        marker: { color: tariffGroups.map(group => group.color) },
+        hovertemplate: '<b>%{x}</b> (%{text})<br>Rata-rata tarif: Rp %{y:,.0f}/bln<br>Jumlah unit: %{customdata}<extra></extra>'
+      }], baseDarkLayout({
+        xaxis: { title: 'Tipe tarif kos' },
+        yaxis: { title: 'Rata-rata Tarif (Rp/Bln)', tickprefix: 'Rp ', tickformat: ',.0f' }
+      }), PLOTLY_CONFIG);
     }
 
     function renderTab3() {
@@ -681,10 +724,10 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
     const DESA_POLYGONS = {"Balige|Balige I": [[2.33814, 99.05981], [2.34503, 99.06088], [2.33801, 99.07279], [2.33341, 99.06848], [2.3352, 99.06335]], "Balige|Balige II": [[2.33308, 99.05621], [2.33814, 99.05981], [2.3352, 99.06335], [2.32807, 99.06306], [2.32893, 99.05847], [2.33232, 99.05584]], "Balige|Balige III": [[2.33232, 99.05584], [2.32893, 99.05847], [2.30854, 99.05231], [2.312, 99.035], [2.32923, 99.03817]], "Balige|Hinalang Bagasan": [[2.34503, 99.06088], [2.33814, 99.05981], [2.33308, 99.05621], [2.35047, 99.04458], [2.35291, 99.05798]], "Balige|Lumban Bulbul": [[2.33801, 99.07279], [2.34503, 99.06088], [2.35291, 99.05798], [2.356, 99.075], [2.345, 99.095], [2.34037, 99.09392]], "Balige|Lumban Gaol": [[2.33308, 99.05621], [2.33232, 99.05584], [2.32923, 99.03817], [2.35, 99.042], [2.35047, 99.04458]], "Balige|Napitupulu": [[2.32638, 99.06702], [2.33341, 99.06848], [2.33801, 99.07279], [2.34037, 99.09392], [2.315, 99.088], [2.31232, 99.07537]], "Balige|Pardede Onan": [[2.32807, 99.06306], [2.3352, 99.06335], [2.33341, 99.06848], [2.32638, 99.06702]], "Balige|Soposurung": [[2.32893, 99.05847], [2.32807, 99.06306], [2.32638, 99.06702], [2.31232, 99.07537], [2.308, 99.055], [2.30854, 99.05231]], "Laguboti|Lumban Bagasan": [[2.39022, 99.13536], [2.38211, 99.1327], [2.37934, 99.12246], [2.38918, 99.10428], [2.393, 99.105], [2.3937, 99.13504]], "Laguboti|Ompu Raja Hutapea": [[2.37934, 99.12246], [2.35394, 99.12478], [2.352, 99.118], [2.356, 99.098], [2.38918, 99.10428]], "Laguboti|Pardede Pasar": [[2.37934, 99.12246], [2.38211, 99.1327], [2.35806, 99.1392], [2.35394, 99.12478]], "Laguboti|Pintu Bosi": [[2.38211, 99.1327], [2.39022, 99.13536], [2.37628, 99.15266], [2.36, 99.146], [2.35806, 99.1392]], "Laguboti|Sitoluama": [[2.39022, 99.13536], [2.3937, 99.13504], [2.394, 99.148], [2.382, 99.155], [2.37628, 99.15266]], "Sigumpar|Banua Huta": [[2.40558, 99.12204], [2.40754, 99.11587], [2.41557, 99.11945], [2.42481, 99.12835], [2.425, 99.134], [2.41175, 99.13515]], "Sigumpar|Marsangit": [[2.41557, 99.11945], [2.40605, 99.10284], [2.424, 99.104], [2.42481, 99.12835]], "Sigumpar|Sigumpar Dalan Natolu": [[2.40754, 99.11587], [2.40558, 99.12204], [2.39345, 99.11373], [2.393, 99.102], [2.40416, 99.10272]], "Sigumpar|Sigumpar III": [[2.41557, 99.11945], [2.40754, 99.11587], [2.40416, 99.10272], [2.40605, 99.10284]], "Sigumpar|Siringkiron": [[2.40558, 99.12204], [2.41175, 99.13515], [2.402, 99.136], [2.394, 99.128], [2.39345, 99.11373]], "Silaen|Dalihan Natolu": [[2.37743, 99.16153], [2.382, 99.155], [2.402, 99.136], [2.425, 99.134], [2.42794, 99.15984]], "Silaen|Hutanamora": [[2.42794, 99.15984], [2.43, 99.178], [2.388, 99.185], [2.375, 99.165], [2.37743, 99.16153]], "Porsea|Parparean I": [[2.43738, 99.14957], [2.42867, 99.15896], [2.42806, 99.15482], [2.44083, 99.12628], [2.45044, 99.12706]], "Porsea|Parparean II": [[2.42806, 99.15482], [2.425, 99.134], [2.425, 99.125], [2.44083, 99.12628]], "Porsea|Patane I": [[2.43738, 99.14957], [2.45044, 99.12706], [2.462, 99.128], [2.46295, 99.13972]], "Porsea|Patane III": [[2.43738, 99.14957], [2.46295, 99.13972], [2.465, 99.165], [2.43, 99.168], [2.42867, 99.15896]], "Ajibata|Justin Sirait": [[2.64038, 98.92661], [2.67769, 98.9457], [2.678, 98.952], [2.648, 98.956], [2.64, 98.93], [2.64031, 98.92658]], "Ajibata|Pardamean": [[2.64038, 98.92661], [2.6711, 98.93138], [2.67714, 98.93477], [2.67769, 98.9457]], "Ajibata|Pelabuhan": [[2.6711, 98.93138], [2.64038, 98.92661], [2.64031, 98.92658], [2.64173, 98.91097]], "Ajibata|Tepi Danau": [[2.6711, 98.93138], [2.64173, 98.91097], [2.642, 98.908], [2.676, 98.912], [2.67714, 98.93477]]};
 
     const MAP_TIERS = [
-      { color: '#3b82f6', stroke: '#1d4ed8' },
-      { color: '#10b981', stroke: '#047857' },
-      { color: '#f59e0b', stroke: '#b45309' },
-      { color: '#ef4444', stroke: '#b91c1c' }
+      { color: '#eff6ff', stroke: '#bfdbfe' },
+      { color: '#bfdbfe', stroke: '#60a5fa' },
+      { color: '#60a5fa', stroke: '#2563eb' },
+      { color: '#1e3a8a', stroke: '#172554' }
     ];
 
     const MAP_METRICS = {
@@ -823,7 +866,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
             t(cuts[1]) + ' - ' + tail(cuts[2]),
             '&gt; ' + t(cuts[2])
           ];
-          legend.innerHTML = '<span class="map-legend-title">Skala Gradasi Choropleth:</span>' +
+          legend.innerHTML = '<span class="map-legend-title">Skala Tarif (terang = rendah, gelap = tinggi):</span>' +
             MAP_TIERS.map((tier, i) =>
               '<span class="map-legend-item"><i style="background:' + tier.color + '"></i>' +
               metric.names[i] + ' (' + ranges[i] + ')</span>'
@@ -892,7 +935,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
           Tarif rata-rata: <strong>${fmtRp(mean(prices))}/bln</strong> (${fmtRp(Math.min(...prices))} - ${fmtRp(Math.max(...prices))})<br/>
           Prediksi ML rata-rata: <strong>${fmtRp(mean(g.map(r => r.pred_rf)))}/bln</strong><br/>
           <strong>Fasilitas Utama:</strong> ${fasRingkas}<br/>
-          <strong>Furnitur &amp; Kamar:</strong> ${r0.fasilitas} (${r0.luas_kamar_m2} m²)<br/>
+          <strong>Furnitur &amp; Kamar:</strong> ${r0.fasilitas} (${r0.luas_kamar_m2} m)<br/>
           <strong>Sanitasi &amp; Air:</strong> ${r0.kelengkapan_kamar_mandi} • ${r0.sumber_air_utama}<br/>
           <strong>Keamanan &amp; Parkir:</strong> ${r0.keamanan_kos} • Parkir ${r0.lahan_parkir}<br/>
           Jarak ke ${r0.nama_tempat_krusial}: <strong>${r0.jarak_ke_kampus_kantor_sekolah_terdekat_km} km</strong><br/>
@@ -909,7 +952,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
           Tarif Aktual: <strong>${fmtRp(r.harga_bulanan_norm)}/bln</strong> (${r.sewa_tahunan_bulanan})<br/>
           Prediksi ML: <strong>${fmtRp(r.pred_rf)}/bln</strong> (${r.status_kewajaran})<br/>
           <strong>Spesifikasi &amp; Fasilitas:</strong> ${summarizeUnitFacilities(r)}<br/>
-          <strong>Luas &amp; Lantai:</strong> ${r.luas_kamar_m2} m² (Lantai ${r.jumlah_lantai})<br/>
+          <strong>Luas &amp; Lantai:</strong> ${r.luas_kamar_m2} m (Lantai ${r.jumlah_lantai})<br/>
           <strong>Sumber Air &amp; Listrik:</strong> ${r.sumber_air_utama} • Listrik ${r.skema_biaya_listrik}<br/>
           Jarak ke ${r.nama_tempat_krusial}: <strong>${r.jarak_ke_kampus_kantor_sekolah_terdekat_km} km</strong>
         </div>`;

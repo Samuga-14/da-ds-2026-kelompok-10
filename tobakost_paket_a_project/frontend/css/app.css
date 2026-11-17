@@ -52,7 +52,9 @@
     .sidebar-collapsed .brand-copy, .sidebar-collapsed .nav-group-label, .sidebar-collapsed .nav-label, .sidebar-collapsed .sidebar-filter, .sidebar-collapsed .sidebar-footer { display: none; }
     .sidebar-collapsed .sidebar-btn { justify-content: center; padding: 8px 4px; }
     .sidebar-collapsed .nav-icon { width: 30px; height: 30px; }
-    #mapSpasial { height: 440px; width: 100%; border-radius: 10px; z-index: 10; }
+    #mapSpasial { height: 520px; width: 100%; min-height: 420px; border-radius: 10px; position: relative; z-index: 0; overflow: hidden; }
+    .card-dark:has(#mapSpasial) { position: relative; z-index: 1; overflow: visible; }
+    #mapSpasial .leaflet-container { z-index: 0; }
         .map-legend-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 9px 12px; margin-bottom: 10px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; font-size: .74rem; color: var(--muted); }
     .map-legend-items { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: .74rem; color: var(--muted); }
     .map-legend-title { font-weight: 700; color: var(--ink); }

@@ -290,29 +290,31 @@
     <!-- HALAMAN 2 -->
     <section id="tab2" class="tab-section hidden space-y-6">
       <div>
-        <h2 class="text-2xl font-bold text-white">Analisis Distribusi & Hierarki Harga Sewa Kos (Treemap Drill-Down, Box Plot Kuantil, Ukuran Kamar, & Tahun)</h2>
-        <p class="text-sm text-slate-400 mt-1">Menggunakan visualisasi interaktif Plotly: klik kotak Kecamatan pada Treemap untuk memperbesar (drill-down) hingga level Desa/Kelurahan.</p>
+        <h2 class="text-2xl font-bold text-white">Analisis Distribusi, Luas Kamar, dan Tipe Tarif Kos</h2>
+        <p class="text-sm text-slate-400 mt-1">Visualisasi ini membedakan distribusi tarif, pengaruh luas kamar secara deskriptif, dan kelompok tarif agar perbandingan antar kos tidak tumpang tindih.</p>
       </div>
 
       <div class="card-dark">
-        <h3 class="text-base font-semibold text-white mb-2">Treemap Hierarki Wilayah: Kabupaten Toba â†’ Kecamatan â†’ Desa/Kelurahan (Klik Kotak untuk Drill-Down)</h3>
+        <h3 class="text-base font-semibold text-white mb-2">Treemap Hierarki Wilayah: Kabupaten Toba â†’ Kecamatan â†’ Desa/Kelurahan</h3>
+        <p class="text-xs text-slate-400 mb-2">Warna terang menunjukkan tarif rata-rata lebih rendah; warna gelap menunjukkan tarif rata-rata lebih tinggi. Klik area untuk drill-down.</p>
         <div id="plotTreemapWilayah" style="width:100%; height:420px;"></div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Box Plot Distribusi Kuartil & Outlier Tarif per Kecamatan & Kamar Mandi</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Box Plot Distribusi Tarif per Kecamatan & Tipe Kamar Mandi</h3>
           <div id="plotBoxKecamatan" class="plot-box"></div>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Berdasarkan Ukuran Kamar (m2) & Kategori Penghuni</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Scatter Plot Luas Kamar vs Tarif Bulanan</h3>
           <div id="plotUkuranKamar" class="plot-box"></div>
         </div>
       </div>
 
       <div class="card-dark">
-        <h3 class="text-base font-semibold text-white mb-2">Tren Kenaikan Tarif Sewa Berdasarkan Tahun Mulai Menyewa (2023 - 2026)</h3>
-        <div id="plotTahunSewa" style="width:100%; height:320px;"></div>
+        <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Berdasarkan Tipe Tarif Kos</h3>
+        <p class="text-xs text-slate-400 mb-2">Hemat &lt; Rp700 ribu, Standar Rp700–&lt;900 ribu, Premium ≥ Rp900 ribu per bulan.</p>
+        <div id="plotTipeTarif" style="width:100%; height:320px;"></div>
       </div>
     </section>
 
@@ -320,7 +322,7 @@
     <section id="tab3" class="tab-section hidden space-y-6">
       <div>
         <h2 class="text-2xl font-bold text-white">Analisis Hubungan Kelengkapan Fasilitas Kamar, Sanitasi, Sumber Air, & Keamanan terhadap Tarif</h2>
-        <p class="text-sm text-slate-400 mt-1">Mengukur nilai tambah finansial dari paket furnitur kamar, kelengkapan kamar mandi, sumber air utama, fasilitas cuci, dan sistem keamanan.</p>
+        <p class="text-sm text-slate-400 mt-1">Perbandingan deskriptif: setiap grafik membandingkan kelompok dengan satu faktor pembeda dan menampilkan jumlah sampel. Hasil menunjukkan hubungan, bukan sebab-akibat.</p>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -350,7 +352,7 @@
     <section id="tab4" class="tab-section hidden space-y-6">
             <div>
         <h2 class="text-2xl font-bold text-white">Pemetaan Geospasial Choropleth & Analisis Korelasi Aksesibilitas Jarak</h2>
-        <p class="text-sm text-slate-400 mt-1">Peta Choropleth zona tarif sewa kos lintas Kecamatan & Desa/Kelurahan di Kabupaten Toba, Heatmap Korelasi Pearson (8x8), dan Bubble Scatter Plot.</p>
+        <p class="text-sm text-slate-400 mt-1">Peta menunjukkan lokasi dan nilai tarif per zona; warna terang berarti rendah dan warna gelap berarti tinggi. Scatter plot digunakan untuk melihat variasi jarak, luas, dan tarif.</p>
       </div>
 
       <div class="card-dark">
@@ -527,7 +529,7 @@
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-300 block mb-1">Luas Kamar (m2)</label>
+            <label class="text-xs text-slate-300 block mb-1">Luas Kamar (m)</label>
             <input type="number" id="predLuas" value="12" min="6" max="36" class="input-dark" oninput="runPredictionCalculator()" />
           </div>
           <div>
