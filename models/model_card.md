@@ -9,7 +9,7 @@ sebagai performa pada data riil.
 
 - Target: `harga_bulanan_norm`.
 - Kandidat: Linear Regression, Ridge, Random Forest, dan Gradient Boosting.
-- Artifact aktif: `models/best_rf_model.pkl`.
+- Artifact model dibuat lokal oleh `python models/train_models.py` dan tidak disimpan di Git.
 - Feature engineering: `models/features.py`.
 - Metrik: `models/metrics_summary.json`.
 

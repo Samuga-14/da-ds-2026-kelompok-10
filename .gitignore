@@ -1,0 +1,20 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Generated local warehouse files
+data/*.db
+data/*.db-*
+
+# Generated machine-learning artifacts
+models/*.pkl
+models/*.joblib
+models/metrics_summary.json
+models/registry/*.json
+models/artifacts/*
+
+# Local secrets and runtime files
+.env
+*.log
