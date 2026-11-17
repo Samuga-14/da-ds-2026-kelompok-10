@@ -267,6 +267,21 @@
       </div>
 
       <div class="card-dark">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h3 class="text-base font-semibold text-white mb-1">Tipe Jenis Kos</h3>
+            <p class="text-xs text-slate-400">Eksekutif = wajib AC, Wi-Fi, kamar mandi dalam, dan tarif di atas median data terfilter. Selain itu dikategorikan ekonomi.</p>
+          </div>
+          <div id="kostTypeFilter" class="kost-type-filter" role="group" aria-label="Filter tipe kos">
+            <button type="button" class="kost-type-btn active" data-kost-type="ALL" onclick="setKostTypeFilter('ALL')">Semua tipe</button>
+            <button type="button" class="kost-type-btn" data-kost-type="ekonomi" onclick="setKostTypeFilter('ekonomi')">Ekonomi</button>
+            <button type="button" class="kost-type-btn" data-kost-type="eksekutif" onclick="setKostTypeFilter('eksekutif')">Eksekutif</button>
+          </div>
+        </div>
+        <div id="kostTypeSummary" class="kost-type-summary mt-4"></div>
+      </div>
+
+      <div class="card-dark">
         <h3 class="text-base font-semibold text-white mb-3">Tabel Ringkasan Statistik Tarif per Kecamatan</h3>
         <div class="overflow-x-auto">
           <table id="tableRingkasanKec">
@@ -446,6 +461,7 @@
                 <th>ID</th>
                 <th>Nama Kos</th>
                 <th>Kecamatan / Desa</th>
+                <th>Tipe Kos</th>
                 <th>Kategori</th>
                 <th>Luas</th>
                 <th>KM</th>
