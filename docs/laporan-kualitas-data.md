@@ -76,3 +76,45 @@ flag.
 
 Dataset staging tetap mempertahankan semua 328 baris beserta kolom flag. Pemisahan
 dataset untuk model tidak dilakukan dengan penghapusan permanen pada file raw.
+
+## Review dan Sertifikasi CP2
+
+Pemeriksaan ulang pipeline dilakukan pada 19 November 2026 menggunakan dataset
+`data/raw/data_fix.csv`. Hasil eksekusi menghasilkan 328 baris staging dari 44
+kolom sumber, sehingga file raw tetap tidak diubah.
+
+| Keputusan review | Hasil |
+|---|---:|
+| Baris ditolak atau kos tidak aktif ditinjau | 15 |
+| Baris yang memiliki duplikasi logis ditandai | 30 |
+| Kandidat outlier IQR ditandai untuk review | 25 |
+| Target model yang disetujui | `harga_bulanan_norm` |
+| Baris fact pada warehouse | 313 |
+| Baris `model_ready` | 261 |
+
+Keputusan final:
+
+1. Tidak ada exact duplicate yang perlu dihapus.
+2. Duplikasi logis dan kandidat outlier tidak dihapus dari staging; keduanya tetap
+   tersedia melalui flag untuk audit dan analisis lanjutan.
+3. Harga tahunan dikonversi ke ekuivalen bulanan, sedangkan harga bulanan
+   dipertahankan.
+4. Baseline model hanya boleh menggunakan baris dengan `model_ready = 1`.
+5. Warehouse hanya memuat 313 baris yang lolos validasi dasar, tanpa mengubah
+   dataset raw.
+
+Validasi teknis yang dijalankan:
+
+```text
+python -m pytest tests/test_normalize_survey.py -q
+2 passed
+
+python etl/normalize_survey.py
+raw_rows=328, staging_rows=328, exact_duplicates=0
+logical_duplicate_rows=30, price_anomaly_iqr=25
+accepted_for_analysis=313, model_ready=261
+
+python etl/run_survey_star_schema.py
+Fact rows: 313
+Model-ready rows: 261
+```
