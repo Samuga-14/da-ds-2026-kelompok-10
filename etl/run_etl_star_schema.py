@@ -30,6 +30,84 @@ def parse_tujuan_kampus(val):
         return nama, round(meter / 1000.0, 2), int(meter)
     return s, 1.0, 1000
 
+def normalize_input_schema(df):
+    """Map the newer survey export to the canonical ETL column names."""
+    df = df.copy()
+    df.columns = [str(column).strip() for column in df.columns]
+
+    canonical_name = "1. Nama Kos"
+    if canonical_name not in df.columns:
+        columns = list(df.columns)
+        if len(columns) < 35 or "nama kos" not in columns[2].lower():
+            raise ValueError(
+                "Schema CSV tidak dikenali. Kolom '1. Nama Kos' tidak ditemukan "
+                "dan format survei baru tidak cocok."
+            )
+
+        position_map = {
+            "1. Nama Kos": 2,
+            "2. Kecamatan Lokasi Kos": 3,
+            "3. Desa / Kelurahan Lokasi Kos": 4,
+            "4. Kategori Penghuni Kos": 8,
+            "5. Perkiraan Jarak ke Kampus / Sekolah / Tempat Kerja Terdekat": 10,
+            "6. Perkiraan Jarak ke Pasar / Minimarket / Supermarket Terdekat": 11,
+            "7. Perkiraan Jarak ke RS / Puskesmas / Klinik Terdekat": 12,
+            "8. Perkiraan Jarak ke Laundry Terdekat": 13,
+            "9. Perkiraan Jarak ke Tempat Ibadah Terdekat": 14,
+            "10. Perkiraan Jarak ke Pusat Kota": 15,
+            "11. Perkiraan Jarak Masuk dari Jalan Raya Utama": 16,
+            "12. Apakah lokasi kos Anda dekat dengan area tempat makan?": 17,
+            "13. Posisi Lantai Kamar": 18,
+            "14. Luas Kamar (m2)": 19,
+            "15. Fasilitas didalam kamar kos yang tersedia": 20,
+            "16. Ada Pendingin Ruangan (AC) di Kamar": 21,
+            "17. Tipe Kamar Mandi": 22,
+            "18. Kelengkapan isi dalam kamar mandi": 23,
+            "19. Sumber Air Utama di Kos": 24,
+            "20. Fasilitas Internet Wi-Fi Kos": 25,
+            "21. Fasilitas Dapur & Kulkas di Kos": 26,
+            "22. Fasilitas Cuci Pakaian & Area Jemuran Kos": 27,
+            "23. Keamanan Kos": 28,
+            "24. Lahan Parkir": 29,
+            "25. Aturan Jam Malam": 30,
+            "26. Berapa kapasitas penghuni dalam satu kamar?": 31,
+            "27. Skema Biaya Listrik": 32,
+            "28. Tahun Mulai Menyewa": 1,
+            "29. Periode Pembayaran Sewa": 33,
+            "30. Nominal Harga Sewa Kos": 34,
+        }
+        df = df.rename(columns={columns[index]: name for name, index in position_map.items()})
+        df["latitude"] = pd.to_numeric(df[columns[6]], errors="coerce")
+        df["longitude"] = pd.to_numeric(df[columns[7]], errors="coerce")
+
+        start_dates = pd.to_datetime(
+            df["28. Tahun Mulai Menyewa"], dayfirst=True, errors="coerce"
+        )
+        df["28. Tahun Mulai Menyewa"] = start_dates.dt.year.astype("Int64").astype(str)
+
+        prices = pd.to_numeric(df["30. Nominal Harga Sewa Kos"], errors="coerce")
+        annual = df["29. Periode Pembayaran Sewa"].astype(str).str.contains(
+            "tahun", case=False, na=False
+        )
+        df["harga_ekuivalen_bulanan_rp"] = np.where(annual, prices / 12, prices).round()
+
+    if "id_kost" not in df.columns:
+        df["id_kost"] = [f"KOST_{index:04d}" for index in range(1, len(df) + 1)]
+    if "kode_unit_kos" not in df.columns:
+        df["kode_unit_kos"] = [f"UNIT_{index:04d}" for index in range(1, len(df) + 1)]
+
+    required = [
+        "1. Nama Kos", "2. Kecamatan Lokasi Kos", "3. Desa / Kelurahan Lokasi Kos",
+        "4. Kategori Penghuni Kos",
+        "5. Perkiraan Jarak ke Kampus / Sekolah / Tempat Kerja Terdekat",
+        "30. Nominal Harga Sewa Kos", "harga_ekuivalen_bulanan_rp",
+        "latitude", "longitude",
+    ]
+    missing = [column for column in required if column not in df.columns]
+    if missing:
+        raise ValueError(f"Kolom wajib tidak tersedia setelah normalisasi: {', '.join(missing)}")
+    return df
+
 def run_etl():
     csv_path = GFORM_CSV_PATH
     if not os.path.exists(csv_path):
@@ -39,7 +117,7 @@ def run_etl():
     raw_count = len(df_raw)
 
     print("[2/4] TRANSFORM: Parsing 36 kolom kuesioner Google Form, ekstraksi multi-label, & normalisasi harga...")
-    df = df_raw.copy()
+    df = normalize_input_schema(df_raw)
     parsed_k = df["5. Perkiraan Jarak ke Kampus / Sekolah / Tempat Kerja Terdekat"].apply(parse_tujuan_kampus)
 
     df["nama_kost"] = df["1. Nama Kos"]
@@ -134,6 +212,11 @@ def run_etl():
         df["dapur_pribadi"] * 0.5 +
         df["keamanan_penjaga"] * 0.5
     ).round(1)
+    df["jenis_kos"] = np.where(
+        df["skor_kelengkapan_fasilitas"] >= 7.0,
+        "eksekutif",
+        "ekonomi",
+    )
 
     df["indeks_aksesibilitas_lokasi"] = (
         (1.0 / (1.0 + df["jarak_ke_kampus_kantor_sekolah_terdekat_km"])) * 35 +
@@ -153,7 +236,8 @@ def run_etl():
     spek_cols = [
         "luas_kamar_m2", "jumlah_lantai", "tipe_kamar_mandi", "kelengkapan_kamar_mandi",
         "ac_non_ac", "fasilitas", "fasilitas_kamar_detail",
-        "ada_lemari", "ada_kasur", "ada_tv", "ada_meja_belajar", "kloset_duduk", "ada_shower", "ada_water_heater"
+        "ada_lemari", "ada_kasur", "ada_tv", "ada_meja_belajar", "kloset_duduk", "ada_shower",
+        "ada_water_heater", "jenis_kos"
     ]
     dim_spesifikasi = df[spek_cols].drop_duplicates().reset_index(drop=True)
     dim_spesifikasi["id_spesifikasi"] = [f"SPK_{i+1:03d}" for i in range(len(dim_spesifikasi))]
@@ -230,6 +314,7 @@ def run_etl():
         s.kloset_duduk,
         s.ada_shower,
         s.ada_water_heater,
+        s.jenis_kos,
         a.id_aturan,
         a.kategori_penghuni,
         a.sumber_air_utama,
