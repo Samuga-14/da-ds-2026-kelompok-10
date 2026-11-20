@@ -1,8 +1,55 @@
 """Analytics transformations shared by dashboard endpoints."""
 
+import math
+import statistics
+
 import numpy as np
 
 from models.features import FEATURE_COLS
+from services.database import connection
+
+
+def get_price_summary():
+    """Return warehouse counts and statistics for valid monthly-normalized prices."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT kode_unit_kos, harga_bulanan_norm FROM fact_sewa_kos"
+        ).fetchall()
+
+    total_data = len(rows)
+    total_kos = len({kode_unit for kode_unit, _ in rows if kode_unit is not None})
+
+    valid_prices = []
+    for _, value in rows:
+        if not isinstance(value, (int, float)):
+            continue
+        try:
+            price = float(value)
+        except OverflowError:
+            continue
+        if math.isfinite(price) and price > 0:
+            valid_prices.append(price)
+
+    statistics_payload = {
+        "mean": statistics.mean(valid_prices) if valid_prices else None,
+        "median": statistics.median(valid_prices) if valid_prices else None,
+        "minimum": min(valid_prices) if valid_prices else None,
+        "maximum": max(valid_prices) if valid_prices else None,
+    }
+    message = None
+    if total_data == 0:
+        message = "Data kos belum tersedia di warehouse."
+    elif not valid_prices:
+        message = "Tidak ada harga bulanan valid untuk dihitung."
+
+    return {
+        "status": "ok",
+        "total_data": total_data,
+        "total_kos": total_kos,
+        "valid_price_count": len(valid_prices),
+        "price_statistics": statistics_payload,
+        "message": message,
+    }
 
 
 def enrich_price_analysis(df, models):

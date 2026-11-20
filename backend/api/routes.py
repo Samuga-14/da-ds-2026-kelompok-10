@@ -3,6 +3,7 @@
 PUBLIC_ROUTES = {
     "health": "GET /api/health",
     "analytics": "GET /api/data",
+    "summary": "GET /api/summary",
     "warehouse": "GET /api/warehouse?table=<allowed_table>",
     "prediction": "POST /api/predict",
 }

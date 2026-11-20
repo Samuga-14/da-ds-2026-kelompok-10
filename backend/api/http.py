@@ -26,7 +26,11 @@ import pandas as pd
 import sklearn
 
 from models.features import FEATURE_COLS, add_derived_features, add_model_features, build_feature_frame
-from services.analytics_service import enrich_price_analysis, feature_importance
+from services.analytics_service import (
+    enrich_price_analysis,
+    feature_importance,
+    get_price_summary,
+)
 from services.database import connect, connection, ensure_readable_object, validate
 from server_config import (
     BASE_DIR,
@@ -448,6 +452,13 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/data":
             try:
                 self._send_json(get_full_analytics_payload())
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
+        if path == "/api/summary":
+            try:
+                self._send_json(get_price_summary())
             except Exception as exc:
                 self._send_api_exception(exc)
             return

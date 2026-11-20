@@ -11,6 +11,10 @@ const TobaKostApi = {
     return fetch('/api/data');
   },
 
+  summary() {
+    return fetch('/api/summary');
+  },
+
   predict(payload) {
     return fetch('/api/predict', {
       method: 'POST',
