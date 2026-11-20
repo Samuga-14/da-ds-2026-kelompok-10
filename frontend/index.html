@@ -329,30 +329,46 @@
     <!-- HALAMAN 3 -->
     <section id="tab3" class="tab-section hidden space-y-6">
       <div>
-        <h2 class="text-2xl font-bold text-white">Analisis Hubungan Kelengkapan Fasilitas Kamar, Sanitasi, Sumber Air, & Keamanan terhadap Tarif</h2>
-        <p class="text-sm text-slate-400 mt-1">Perbandingan deskriptif: setiap grafik membandingkan kelompok dengan satu faktor pembeda dan menampilkan jumlah sampel. Hasil menunjukkan hubungan, bukan sebab-akibat.</p>
+        <h2 class="text-2xl font-bold text-white">EDA & Kualitas Data Survei Kos Toba</h2>
+        <p class="text-sm text-slate-400 mt-1">Eksplorasi 328 respons survei: distribusi tarif, lokasi, luas kamar, fasilitas, jarak, outlier, dan missing value. Data mengikuti hasil preprocessing produksi.</p>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Sewa Berdasarkan Paket Furnitur Kamar & AC</h3>
+          <h3 class="text-base font-semibold text-white mb-2">1. Distribusi Tarif Bulanan Setara</h3>
           <div id="plotFurnitur" class="plot-box"></div>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Kurva Kenaikan Tarif terhadap Skor Kelengkapan Fasilitas (0 - 10)</h3>
+          <h3 class="text-base font-semibold text-white mb-2">2. Tarif per Kecamatan & Kategori Penghuni</h3>
           <div id="plotSkorFasilitasLine" class="plot-box"></div>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Dampak Sumber Air Utama & Tipe Kamar Mandi terhadap Tarif</h3>
+          <h3 class="text-base font-semibold text-white mb-2">3. Distribusi Luas Kamar</h3>
           <div id="plotSumberAir" class="plot-box"></div>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Dampak Sistem Keamanan Kos & Aturan Jam Malam</h3>
+          <h3 class="text-base font-semibold text-white mb-2">4. Hubungan Luas Kamar & Tarif</h3>
           <div id="plotKeamanan" class="plot-box"></div>
         </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">5. Fasilitas dengan Median Tarif</h3>
+          <div id="plotFasilitasTarif" class="plot-box"></div>
+        </div>
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">6. Korelasi Jarak Fasilitas terhadap Tarif</h3>
+          <div id="plotJarakTarif" class="plot-box"></div>
+        </div>
+      </div>
+
+      <div class="card-dark">
+        <h3 class="text-base font-semibold text-white mb-2">7. Outlier IQR & Missing Value</h3>
+        <div id="plotOutlierMissing" class="plot-box"></div>
       </div>
     </section>
 

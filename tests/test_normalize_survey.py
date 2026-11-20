@@ -8,7 +8,13 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR / "etl"))
 
-from normalize_survey import RAW_PATH, STAGING_PATH, numeric_value, normalize_survey
+from normalize_survey import (
+    RAW_PATH,
+    STAGING_PATH,
+    normalize_survey,
+    numeric_value,
+    room_area_value,
+)
 
 
 class SurveyNormalizationTests(unittest.TestCase):
@@ -16,6 +22,11 @@ class SurveyNormalizationTests(unittest.TestCase):
         self.assertEqual(numeric_value("40.000"), 40000.0)
         self.assertEqual(numeric_value("550000"), 550000.0)
         self.assertTrue(pd.isna(numeric_value("tidak ada")))
+
+    def test_room_area_accepts_dimensions(self):
+        self.assertEqual(room_area_value("2 x 3"), 6.0)
+        self.assertEqual(room_area_value("3,5x5"), 17.5)
+        self.assertEqual(room_area_value("18 m2"), 18.0)
 
     def test_real_survey_normalization(self):
         canonical, report = normalize_survey(RAW_PATH)

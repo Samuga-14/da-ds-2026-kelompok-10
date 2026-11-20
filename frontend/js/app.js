@@ -4,7 +4,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
     let KOST_TYPE_FILTER = 'ALL';
     let LEAFLET_MAP = null;
     let LEAFLET_LAYER = null;
-    const PLOTLY_CONFIG = { responsive: true, displayModeBar: false };
+    const PLOTLY_CONFIG = { responsive: true, displayModeBar: false, doubleClick: 'reset' };
     const CATEGORY_META = [
       { key: 'putra', label: 'Putra', color: '#2563eb' },
       { key: 'putri', label: 'Putri', color: '#8b5cf6' },
@@ -639,86 +639,171 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
     }
 
     function renderTab3() {
-      const rows = FILTERED_RECORDS;
-      const tiers = [
-        { full: 'Kamar Kosong (Tanpa Furnitur)', short: 'Kamar Kosong' },
-        { full: 'Dasar (Kasur & Lemari)', short: 'Dasar (Kasur+Lemari)' },
-        { full: 'Menengah (Dipan, Kasur, Lemari, Meja & Kursi)', short: 'Menengah (+Meja)' },
-        { full: 'Lengkap (Dipan, Kasur, Lemari, Meja, Cermin)', short: 'Lengkap (+Cermin)' },
-        { full: 'Eksekutif (Lengkap + TV & Kulkas Mini)', short: 'Eksekutif (+TV/Kulkas)' }
-      ];
+      const survey = APP_PAYLOAD.survey_eda;
+      if (!survey) {
+        ['plotFurnitur', 'plotSkorFasilitasLine', 'plotSumberAir', 'plotKeamanan', 'plotFasilitasTarif', 'plotJarakTarif', 'plotOutlierMissing'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.innerHTML = '<p class="text-xs text-slate-500 p-5 text-center">Memuat ringkasan EDA survei...</p>';
+        });
+        return;
+      }
 
-      Plotly.react('plotFurnitur', [
-        {
-          y: tiers.map(t => t.short),
-          x: tiers.map(t => Math.round(mean(rows.filter(r => r.fasilitas === t.full && r.ac_non_ac === 'non-ac').map(r => r.harga_bulanan_norm)))),
-          name: 'Non-AC',
-          type: 'bar',
-          orientation: 'h',
-          marker: { color: '#3b82f6' }
+      const priceHist = survey.price_histogram;
+      const priceLabels = priceHist.edges.slice(0, -1).map((edge, i) =>
+        `Rp${Math.round(edge / 1000)}-${Math.round(priceHist.edges[i + 1] / 1000)} rb`
+      );
+      Plotly.react('plotFurnitur', [{
+        x: priceLabels,
+        y: priceHist.counts,
+        type: 'bar',
+        marker: { color: '#3b82f6' },
+        hovertemplate: '<b>%{x}</b><br>Jumlah unit: %{y}<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 20, r: 20, b: 58, l: 55 },
+        xaxis: {
+          title: 'Rentang tarif setara bulanan',
+          tickmode: 'array',
+          tickvals: priceLabels.filter((_, i) => i % 2 === 0),
+          tickangle: -20,
+          automargin: true
         },
-        {
-          y: tiers.map(t => t.short),
-          x: tiers.map(t => Math.round(mean(rows.filter(r => r.fasilitas === t.full && r.ac_non_ac === 'ac').map(r => r.harga_bulanan_norm)))),
-          name: 'Ber-AC',
-          type: 'bar',
-          orientation: 'h',
-          marker: { color: '#f59e0b' }
-        }
-      ], baseDarkLayout({ barmode: 'group', margin: { t: 28, r: 20, b: 45, l: 140 }, xaxis: { title: 'Rata-rata Tarif (Rp/Bln)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' } }), PLOTLY_CONFIG);
+        yaxis: { title: 'Jumlah unit kos' }
+      }), PLOTLY_CONFIG);
 
-      const scoreBuckets = {};
-      rows.forEach(r => {
-        const sc = Math.round(r.skor_kelengkapan_fasilitas);
-        if (!scoreBuckets[sc]) scoreBuckets[sc] = [];
-        scoreBuckets[sc].push(r.harga_bulanan_norm);
-      });
-      const scKeys = Object.keys(scoreBuckets).map(Number).sort((a, b) => a - b);
-      Plotly.react('plotSkorFasilitasLine', [{
-        x: scKeys,
-        y: scKeys.map(s => Math.round(mean(scoreBuckets[s]))),
+      const kecLabels = survey.kecamatan.map(item => item.label);
+      const kecMedians = survey.kecamatan.map(item => Math.round(item.median));
+      const categoryLabels = survey.kategori_penghuni.map(item => item.label);
+      const categoryMedians = survey.kategori_penghuni.map(item => Math.round(item.median));
+      Plotly.react('plotSkorFasilitasLine', [
+        { y: kecLabels, x: kecMedians, type: 'bar', orientation: 'h', name: 'Median per kecamatan', marker: { color: '#2563eb' },
+          customdata: survey.kecamatan.map(item => item.count),
+          hovertemplate: '<b>%{y}</b><br>Median: Rp %{x:,.0f}<br>Jumlah: %{customdata}<extra></extra>',
+          xaxis: 'x', yaxis: 'y' },
+        { x: categoryLabels, y: categoryMedians, type: 'bar', name: 'Median per kategori', marker: { color: '#14b8a6' },
+          customdata: survey.kategori_penghuni.map(item => item.count),
+          hovertemplate: '<b>%{x}</b><br>Median: Rp %{y:,.0f}<br>Jumlah: %{customdata}<extra></extra>',
+          xaxis: 'x2', yaxis: 'y2' }
+      ], baseDarkLayout({
+        grid: { rows: 1, columns: 2, pattern: 'independent' },
+        margin: { t: 20, r: 20, b: 55, l: 115 },
+        xaxis: { domain: [0, 0.58], title: 'Median per kecamatan', tickprefix: 'Rp ', tickformat: '~s' },
+        yaxis: { domain: [0, 1], automargin: true },
+        xaxis2: { domain: [0.62, 1], title: 'Kategori', tickangle: 0 },
+        yaxis2: { title: 'Median Rp/bulan', tickprefix: 'Rp ', tickformat: '~s', domain: [0, 1] }
+      }), PLOTLY_CONFIG);
+
+      const areaHist = survey.area_histogram;
+      const areaLabels = areaHist.edges.slice(0, -1).map((edge, i) =>
+        `${edge.toFixed(1)}-${areaHist.edges[i + 1].toFixed(1)} m`
+      );
+      Plotly.react('plotSumberAir', [{
+        x: areaLabels,
+        y: areaHist.counts,
+        type: 'bar',
+        marker: { color: '#8b5cf6' },
+        hovertemplate: '<b>%{x}</b><br>Jumlah unit: %{y}<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 20, r: 20, b: 58, l: 55 },
+        xaxis: {
+          title: 'Rentang luas kamar',
+          tickmode: 'array',
+          tickvals: areaLabels.filter((_, i) => i % 2 === 0),
+          tickangle: -20,
+          automargin: true
+        },
+        yaxis: { title: 'Jumlah unit kos' }
+      }), PLOTLY_CONFIG);
+
+      Plotly.react('plotKeamanan', [{
+        x: survey.area_scatter.map(item => item.area),
+        y: survey.area_scatter.map(item => item.price),
         type: 'scatter',
-        mode: 'lines+markers',
-        fill: 'tozeroy',
-        line: { color: '#10b981', width: 3 },
-        name: 'Rata-rata Tarif'
-      }], baseDarkLayout({ xaxis: { title: 'Skor Kelengkapan Fasilitas (0 - 10)', gridcolor: '#e2e8f0' }, yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' } }), PLOTLY_CONFIG);
+        mode: 'markers',
+        marker: { color: '#f59e0b', size: 7, opacity: 0.65 },
+        hovertemplate: 'Luas: %{x:.1f} m<br>Tarif: Rp %{y:,.0f}/bulan<extra></extra>'
+      }], baseDarkLayout({
+        xaxis: { title: 'Luas kamar (m)' },
+        yaxis: { title: 'Tarif bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
+        hovermode: 'closest'
+      }), PLOTLY_CONFIG);
 
-      const airLabels = ['Air PDAM', 'Air Sumur Bor', 'Air Sumur Gali', 'Air Gunung'];
-      Plotly.react('plotSumberAir', [
+      const facilityLabels = [];
+      const facilityValues = [];
+      const facilityColors = [];
+      Object.entries(survey.facility_groups).forEach(([group, values]) => {
+        Object.entries(values).forEach(([label, value]) => {
+          if (value !== null) {
+            facilityLabels.push(`${group}: ${label}`);
+            facilityValues.push(Math.round(value));
+            facilityColors.push(label.includes('Ada') || label.includes('dalam') ? '#10b981' : '#94a3b8');
+          }
+        });
+      });
+      Plotly.react('plotFasilitasTarif', [{
+        x: facilityLabels,
+        y: facilityValues,
+        type: 'bar',
+        marker: { color: facilityColors },
+        hovertemplate: '<b>%{x}</b><br>Median tarif: Rp %{y:,.0f}/bulan<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 20, r: 20, b: 100, l: 60 },
+        xaxis: { tickangle: -30 },
+        yaxis: { title: 'Median tarif (Rp/bulan)', tickprefix: 'Rp ', tickformat: ',.0f' }
+      }), PLOTLY_CONFIG);
+
+      Plotly.react('plotJarakTarif', [{
+        y: survey.distance_corr.map(item => item.label),
+        x: survey.distance_corr.map(item => item.correlation),
+        type: 'bar',
+        orientation: 'h',
+        marker: { color: '#6366f1' },
+        hovertemplate: '<b>%{y}</b><br>Korelasi Spearman: %{x:.2f}<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 20, r: 20, b: 45, l: 150 },
+        xaxis: { title: 'Korelasi Spearman', zeroline: true, zerolinecolor: '#334155' }
+      }), PLOTLY_CONFIG);
+
+      const quality = survey.quality;
+      Plotly.react('plotOutlierMissing', [
         {
-          x: airLabels,
-          y: airLabels.map(a => Math.round(mean(rows.filter(r => r.sumber_air_utama === a && r.tipe_kamar_mandi === 'dalam').map(r => r.harga_bulanan_norm)))),
-          name: 'KM Dalam',
-          type: 'bar',
-          marker: { color: '#3b82f6' }
+          y: survey.outlier.prices,
+          type: 'box',
+          name: 'Tarif bulanan',
+          marker: { color: '#2563eb' },
+          boxpoints: 'outliers',
+          xaxis: 'x',
+          yaxis: 'y'
         },
         {
-          x: airLabels,
-          y: airLabels.map(a => Math.round(mean(rows.filter(r => r.sumber_air_utama === a && r.tipe_kamar_mandi === 'luar').map(r => r.harga_bulanan_norm)))),
-          name: 'KM Luar',
+          y: survey.quality.missing.map(item => item.count),
+          x: survey.quality.missing.map(item => item.column),
           type: 'bar',
-          marker: { color: '#64748b' }
+          name: 'Missing value',
+          marker: { color: '#f97316' },
+          xaxis: 'x2',
+          yaxis: 'y2'
         }
-      ], baseDarkLayout({ barmode: 'group', yaxis: { title: 'Rata-rata Tarif (Rp/Bln)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' } }), PLOTLY_CONFIG);
-
-      const secLabels = ['Penjaga & CCTV', 'CCTV Saja', 'Tidak Ada'];
-      Plotly.react('plotKeamanan', [
-        {
-          x: secLabels,
-          y: secLabels.map(s => Math.round(mean(rows.filter(r => r.keamanan_kos === s && r.aturan_jam_malam_masuk === 'Bebas 24 Jam').map(r => r.harga_bulanan_norm)))),
-          name: 'Bebas 24 Jam',
-          type: 'bar',
-          marker: { color: '#10b981' }
-        },
-        {
-          x: secLabels,
-          y: secLabels.map(s => Math.round(mean(rows.filter(r => r.keamanan_kos === s && r.aturan_jam_malam_masuk !== 'Bebas 24 Jam').map(r => r.harga_bulanan_norm)))),
-          name: 'Ada Batas Jam Malam',
-          type: 'bar',
-          marker: { color: '#3b82f6' }
-        }
-      ], baseDarkLayout({ barmode: 'group', yaxis: { title: 'Rata-rata Tarif (Rp/Bln)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' } }), PLOTLY_CONFIG);
+      ], baseDarkLayout({
+        grid: { rows: 1, columns: 2, pattern: 'independent' },
+        margin: { t: 25, r: 20, b: 120, l: 65 },
+        xaxis: { domain: [0, 0.48], title: 'Tarif setara bulanan' },
+        yaxis: { title: 'Rp/bulan', tickprefix: 'Rp ', tickformat: ',.0f', domain: [0, 1] },
+        xaxis2: { domain: [0.52, 1], title: 'Kolom', tickangle: -35 },
+        yaxis2: { title: 'Jumlah missing', domain: [0, 1] },
+        annotations: [{
+          x: 0.5,
+          y: 1.08,
+          xref: 'paper',
+          yref: 'paper',
+          text: `328 respons · ${quality.accepted_rows} lolos analisis · ${quality.outliers} kandidat outlier · ${quality.model_ready} model_ready`,
+          showarrow: false,
+          font: { size: 12, color: '#475569' }
+        }],
+        shapes: [
+          { type: 'line', x0: 0, x1: 1, xref: 'x', y0: survey.outlier.lower, y1: survey.outlier.lower, yref: 'y', line: { color: '#dc2626', dash: 'dash' } },
+          { type: 'line', x0: 0, x1: 1, xref: 'x', y0: survey.outlier.upper, y1: survey.outlier.upper, yref: 'y', line: { color: '#dc2626', dash: 'dash' } }
+        ]
+      }), PLOTLY_CONFIG);
     }
 
     /* ================= PETA CHOROPLETH (TAB 4) ================= */
