@@ -1,4 +1,3 @@
-"""Uji loader model (#31): jalankan dengan `python -m unittest tests.test_model_loader -v`."""
 import json
 import os
 import pickle
@@ -10,7 +9,7 @@ import numpy as np
 import sklearn
 from sklearn.linear_model import LinearRegression
 
-import server
+from backend.api import http as server
 from models.features import FEATURE_COLS
 
 MODEL_NAMES = [

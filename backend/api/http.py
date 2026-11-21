@@ -1,13 +1,3 @@
-"""
-TobaKost Analytics & ML — Backend Server (Arsitektur Paket A)
-Stack: Python built-in HTTP REST API + SQLite Star Schema Data Warehouse + Pre-trained ML Models (.pkl)
-Frontend: HTML5 + Tailwind CSS + Chart.js + Leaflet.js (frontend/index.html)
-
-Cara Menjalankan:
-1. Klik tombol Run Python File di VS Code, ATAU
-2. Ketik di terminal: python server.py
-Server akan otomatis berjalan di http://localhost:8000 dan membuka browser.
-"""
 import os
 import sys
 import json
@@ -41,6 +31,9 @@ from server_config import (
 )
 LOGGER = logging.getLogger("tobakost")
 MODEL_BUNDLE = None
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+REGISTRY_MANIFEST_PATH = os.path.join(MODEL_DIR, "registry", "model_manifest.json")
+MANIFEST_REQUIRED_KEYS = ("model_artifact", "features", "best_algorithm", "sklearn_version")
 
 
 class RequestValidationError(ValueError):
@@ -58,20 +51,57 @@ def ensure_database():
         subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
 
 
+def read_model_manifest():
+    """Baca models/registry/model_manifest.json: penunjuk model terbaik yang aktif."""
+    if not os.path.exists(REGISTRY_MANIFEST_PATH):
+        raise ModelUnavailableError(
+            "Manifest model tidak ditemukan di models/registry/. Jalankan `python models/train_models.py` dari folder proyek."
+        )
+    try:
+        with open(REGISTRY_MANIFEST_PATH, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ModelUnavailableError(
+            "Manifest model rusak atau tidak bisa dibaca. Jalankan `python models/train_models.py`."
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ModelUnavailableError("Format manifest model tidak valid; latih ulang dengan models/train_models.py.")
+    missing = [key for key in MANIFEST_REQUIRED_KEYS if key not in manifest]
+    if missing:
+        raise ModelUnavailableError(f"Manifest model tidak lengkap, kunci hilang: {', '.join(missing)}.")
+    return manifest
+
+
+def resolve_model_artifact(manifest):
+    """Ubah model_artifact di manifest menjadi path file; wajib berada di dalam folder models/."""
+    artifact_path = os.path.abspath(os.path.join(BASE_DIR, str(manifest["model_artifact"])))
+    models_root = os.path.abspath(MODEL_DIR)
+    if os.path.commonpath([artifact_path, models_root]) != models_root:
+        raise ModelUnavailableError("Lokasi model pada manifest berada di luar folder models/.")
+    if not os.path.exists(artifact_path):
+        raise ModelUnavailableError(
+            f"File model {manifest['model_artifact']} tidak ditemukan. Jalankan `python models/train_models.py` untuk melatih dan menyimpan model."
+        )
+    return artifact_path
+
+
 def load_model_bundle():
     global MODEL_BUNDLE
     ensure_database()
     if MODEL_BUNDLE is not None:
         return MODEL_BUNDLE
-    if not os.path.exists(MODEL_PKL_PATH):
+
+    manifest = read_model_manifest()
+    if manifest["features"] != FEATURE_COLS:
         raise ModelUnavailableError(
-            "File model tidak ditemukan. Jalankan `python models/train_models.py` dari folder proyek untuk melatih dan menyimpan model."
+            "Daftar fitur pada manifest tidak sesuai dengan fitur API; latih ulang model dengan models/train_models.py."
         )
+    artifact_path = resolve_model_artifact(manifest)
     try:
-        with open(MODEL_PKL_PATH, "rb") as f:
+        with open(artifact_path, "rb") as f:
             bundle = pickle.load(f)
     except Exception as exc:
-        LOGGER.exception("Gagal memuat bundle model dari %s", MODEL_PKL_PATH)
+        LOGGER.exception("Gagal memuat bundle model dari %s", artifact_path)
         raise ModelUnavailableError(
             "File model tidak kompatibel atau rusak. Jalankan `python models/train_models.py` dengan dependensi dari requirements.txt."
         ) from exc
@@ -86,6 +116,8 @@ def load_model_bundle():
         )
     if bundle.get("features") != FEATURE_COLS:
         raise ModelUnavailableError("Urutan fitur model tidak sesuai dengan fitur API; latih ulang model.")
+    if bundle.get("features") != manifest["features"] or bundle.get("best_algorithm") != manifest["best_algorithm"]:
+        raise ModelUnavailableError("Manifest tidak cocok dengan isi file model; latih ulang dengan models/train_models.py.")
     expected_models = {
         "Linear Regression (Baseline)",
         "Ridge Regression (L2 Tuned)",
