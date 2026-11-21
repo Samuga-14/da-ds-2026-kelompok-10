@@ -1,3 +1,13 @@
+"""
+TobaKost Analytics & ML — Backend Server (Arsitektur Paket A)
+Stack: Python built-in HTTP REST API + SQLite Star Schema Data Warehouse + Pre-trained ML Models (.pkl)
+Frontend: HTML5 + Tailwind CSS + Chart.js + Leaflet.js (frontend/index.html)
+
+Cara Menjalankan:
+1. Klik tombol Run Python File di VS Code, ATAU
+2. Ketik di terminal: python server.py
+Server akan otomatis berjalan di http://localhost:8000 dan membuka browser.
+"""
 import os
 import sys
 import json
