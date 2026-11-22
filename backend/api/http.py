@@ -27,6 +27,7 @@ import sklearn
 
 from models.features import FEATURE_COLS, add_derived_features, add_model_features, build_feature_frame
 from services.analytics_service import (
+    FACILITY_FILTERS,
     enrich_price_analysis,
     feature_importance,
     get_price_summary,
@@ -121,6 +122,107 @@ def _json_safe(value):
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _read_summary_filters(query):
+    """Read and validate the supported /api/summary query parameters."""
+    with connection() as conn:
+        districts = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kecamatan FROM dim_lokasi "
+                "WHERE kecamatan IS NOT NULL ORDER BY kecamatan"
+            ).fetchall()
+        ]
+        resident_categories = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kategori_penghuni FROM dim_fasilitas_aturan "
+                "WHERE kategori_penghuni IS NOT NULL ORDER BY kategori_penghuni"
+            ).fetchall()
+        ]
+        payment_periods = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT sewa_tahunan_bulanan FROM dim_kontrak_sewa "
+                "WHERE sewa_tahunan_bulanan IS NOT NULL "
+                "ORDER BY sewa_tahunan_bulanan"
+            ).fetchall()
+        ]
+        start_years = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT tahun_mulai_sewa FROM dim_kontrak_sewa "
+                "WHERE tahun_mulai_sewa IS NOT NULL ORDER BY tahun_mulai_sewa"
+            ).fetchall()
+        ]
+
+    allowed_filters = {
+        "kecamatan": (districts, districts),
+        "kategori_penghuni": (
+            [str(value).lower() for value in resident_categories],
+            resident_categories,
+        ),
+        "sewa_tahunan_bulanan": (
+            [str(value).lower() for value in payment_periods],
+            payment_periods,
+        ),
+        "tahun_mulai_sewa": (start_years, start_years),
+        "fasilitas": (list(FACILITY_FILTERS), list(FACILITY_FILTERS)),
+    }
+
+    filters = {}
+    for name, (allowed_values, canonical_values) in allowed_filters.items():
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+
+        lookup = str(value).casefold()
+        matched_index = None
+        for index, allowed in enumerate(allowed_values):
+            if str(allowed).casefold() == lookup:
+                matched_index = index
+                break
+
+        if matched_index is None:
+            choices = ", ".join(str(choice) for choice in canonical_values)
+            raise RequestValidationError(
+                f"Nilai '{value}' tidak valid untuk parameter '{name}'. "
+                f"Pilihan tersedia: {choices}."
+            )
+
+        filters[name] = canonical_values[matched_index]
+
+    for name in ("harga_min", "harga_max"):
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+        try:
+            numeric_value = float(value)
+        except ValueError as exc:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            ) from exc
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            )
+        filters[name] = numeric_value
+
+    if (
+        filters.get("harga_min") is not None
+        and filters.get("harga_max") is not None
+        and filters["harga_min"] > filters["harga_max"]
+    ):
+        raise RequestValidationError(
+            "Parameter 'harga_min' tidak boleh lebih besar daripada 'harga_max'."
+        )
+
+    return filters
 
 
 def get_full_analytics_payload():
@@ -458,7 +560,9 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/summary":
             try:
-                self._send_json(get_price_summary())
+                qs = parse_qs(parsed.query, keep_blank_values=True)
+                filters = _read_summary_filters(qs)
+                self._send_json(get_price_summary(filters))
             except Exception as exc:
                 self._send_api_exception(exc)
             return

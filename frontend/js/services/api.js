@@ -11,8 +11,26 @@ const TobaKostApi = {
     return fetch('/api/data');
   },
 
-  summary() {
-    return fetch('/api/summary');
+  summary(filters = {}) {
+    const params = new URLSearchParams();
+    [
+      'kecamatan',
+      'kategori_penghuni',
+      'sewa_tahunan_bulanan',
+      'tahun_mulai_sewa',
+      'harga_min',
+      'harga_max',
+      'fasilitas'
+    ]
+      .forEach((key) => {
+        const value = filters[key];
+        if (value !== undefined && value !== null && value !== '' && value !== 'ALL') {
+          params.append(key, value);
+        }
+      });
+
+    const query = params.toString();
+    return fetch(query ? `/api/summary?${query}` : '/api/summary');
   },
 
   predict(payload) {
