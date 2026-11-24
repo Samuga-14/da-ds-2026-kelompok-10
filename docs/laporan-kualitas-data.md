@@ -14,8 +14,8 @@ Dataset mentah yang dianalisis adalah `data/raw/data_fix.csv` dengan 328 baris d
 | Exact duplicate | 0 |
 | Duplikasi logis | 30 baris terlibat |
 | Kandidat outlier IQR | 25 |
-| Lolos analisis dasar | 313 |
-| `model_ready` | 261 |
+| Lolos analisis dasar | 312 |
+| `model_ready` | 260 |
 | Baris ditolak atau kos tidak aktif | 15 |
 
 ## Duplikasi
@@ -89,8 +89,8 @@ kolom sumber, sehingga file raw tetap tidak diubah.
 | Baris yang memiliki duplikasi logis ditandai | 30 |
 | Kandidat outlier IQR ditandai untuk review | 25 |
 | Target model yang disetujui | `harga_bulanan_norm` |
-| Baris fact pada warehouse | 313 |
-| Baris `model_ready` | 261 |
+| Baris fact pada warehouse | 312 |
+| Baris `model_ready` | 260 |
 
 Keputusan final:
 
@@ -100,7 +100,7 @@ Keputusan final:
 3. Harga tahunan dikonversi ke ekuivalen bulanan, sedangkan harga bulanan
    dipertahankan.
 4. Baseline model hanya boleh menggunakan baris dengan `model_ready = 1`.
-5. Warehouse hanya memuat 313 baris yang lolos validasi dasar, tanpa mengubah
+5. Warehouse hanya memuat 312 baris yang lolos validasi dasar, tanpa mengubah
    dataset raw.
 
 Validasi teknis yang dijalankan:
@@ -112,9 +112,9 @@ python -m pytest tests/test_normalize_survey.py -q
 python etl/normalize_survey.py
 raw_rows=328, staging_rows=328, exact_duplicates=0
 logical_duplicate_rows=30, price_anomaly_iqr=25
-accepted_for_analysis=313, model_ready=261
+accepted_for_analysis=312, model_ready=260
 
 python etl/run_survey_star_schema.py
-Fact rows: 313
-Model-ready rows: 261
+Fact rows: 312
+Model-ready rows: 260
 ```
