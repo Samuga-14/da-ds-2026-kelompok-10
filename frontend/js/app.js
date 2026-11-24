@@ -83,6 +83,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         if (!fresh || !Array.isArray(fresh.records)) throw new Error('Respons API tidak berisi daftar records yang valid.');
         APP_PAYLOAD = fresh;
         ALL_RECORDS = fresh.records;
+        populateGlobalFilterOptions();
         const bestAlgorithm = fresh.best_algorithm || Object.entries(fresh.metrics || {})
           .sort((a, b) => a[1].MAE - b[1].MAE)[0]?.[0];
         if (bestAlgorithm) {
@@ -186,6 +187,109 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       'Sigumpar', 'Silaen', 'Tampahan', 'Uluan'
     ];
 
+    let SUMMARY_FILTER_TIMER = null;
+    let SUMMARY_REQUEST_ID = 0;
+
+    function populateFilterSelect(selectId, values, allLabel) {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const selectedValue = select.value;
+      select.options.length = 0;
+
+      const allOption = document.createElement('option');
+      allOption.value = 'ALL';
+      allOption.textContent = allLabel;
+      select.appendChild(allOption);
+
+      values.forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      });
+
+      select.value = values.includes(selectedValue) ? selectedValue : 'ALL';
+    }
+
+    function populateGlobalFilterOptions() {
+      const districts = [...new Set(ALL_RECORDS
+        .map(row => String(row.kecamatan || '').trim())
+        .filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'id'));
+      const years = [...new Set(ALL_RECORDS
+        .map(row => String(row.tahun_mulai_sewa || '').trim())
+        .filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
+
+      populateFilterSelect('filterKecamatan', districts, `Semua Kecamatan (${districts.length} Kecamatan)`);
+      populateFilterSelect('filterTahun', years, 'Semua Tahun');
+    }
+
+    function getSummaryFilters() {
+      const filters = {};
+      const filterControls = [
+        ['kecamatan', 'filterKecamatan'],
+        ['kategori_penghuni', 'filterKategori'],
+        ['sewa_tahunan_bulanan', 'filterPeriode'],
+        ['tahun_mulai_sewa', 'filterTahun'],
+        ['harga_min', 'filterHargaMin'],
+        ['harga_max', 'filterHargaMax'],
+        ['fasilitas', 'filterFasilitas']
+      ];
+
+      filterControls.forEach(([name, id]) => {
+        const value = document.getElementById(id).value;
+        if (value !== '' && value !== 'ALL') filters[name] = value;
+      });
+      return filters;
+    }
+
+    function updateSummaryKpis(summary) {
+      const priceStatistics = summary.price_statistics || {};
+      if (Number.isFinite(summary.total_data)) {
+        document.getElementById('kpiTotalUnit').textContent = `${summary.total_data} Unit`;
+      }
+      if (priceStatistics.mean === null || Number.isFinite(priceStatistics.mean)) {
+        document.getElementById('kpiMeanHarga').textContent =
+          priceStatistics.mean === null ? '—' : fmtRp(priceStatistics.mean);
+      }
+      if (priceStatistics.median === null || Number.isFinite(priceStatistics.median)) {
+        document.getElementById('kpiMedianHarga').textContent =
+          priceStatistics.median === null ? '—' : fmtRp(priceStatistics.median);
+      }
+    }
+
+    function scheduleSummaryRefresh() {
+      const requestId = ++SUMMARY_REQUEST_ID;
+      clearTimeout(SUMMARY_FILTER_TIMER);
+      SUMMARY_FILTER_TIMER = setTimeout(async () => {
+        try {
+          const response = await TobaKostApi.summary(getSummaryFilters());
+          if (!response.ok) {
+            let detail = '';
+            try {
+              const body = await response.json();
+              detail = body.message ? `: ${body.message}` : '';
+            } catch (parseError) {
+              console.warn('Respons error API ringkasan tidak berisi JSON.', parseError);
+            }
+            throw new Error(`API ringkasan merespons HTTP ${response.status}${detail}`);
+          }
+
+          const summary = await response.json();
+          if (requestId !== SUMMARY_REQUEST_ID) return;
+          if (!summary || summary.status !== 'ok') {
+            throw new Error(summary && summary.message ? summary.message : 'Respons API ringkasan tidak valid.');
+          }
+          updateSummaryKpis(summary);
+        } catch (error) {
+          if (requestId === SUMMARY_REQUEST_ID) {
+            console.warn('API ringkasan tidak tersedia; KPI menggunakan perhitungan lokal.', error);
+          }
+        }
+      }, 250);
+    }
+
     function matchesFacilityFilter(r, facility) {
       if (!facility || facility === 'ALL') return true;
       const detailKamar = String(r.fasilitas_kamar_detail || '').toLowerCase();
@@ -250,6 +354,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       const kat = document.getElementById('filterKategori').value;
       const jenisKos = document.getElementById('filterJenisKos').value;
       const per = document.getElementById('filterPeriode').value;
+      const tahun = document.getElementById('filterTahun').value;
       const minPrice = Number(document.getElementById('filterHargaMin').value);
       const maxPrice = Number(document.getElementById('filterHargaMax').value);
       const facility = document.getElementById('filterFasilitas').value;
@@ -259,6 +364,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         if (kat !== 'ALL' && normalizeCategory(r.kategori_penghuni) !== kat) return false;
         if (jenisKos !== 'ALL' && String(r.jenis_kos || '').toLowerCase() !== jenisKos) return false;
         if (per !== 'ALL' && r.sewa_tahunan_bulanan !== per) return false;
+        if (tahun !== 'ALL' && String(r.tahun_mulai_sewa) !== tahun) return false;
         if (document.getElementById('filterHargaMin').value !== '' && r.harga_bulanan_norm < minPrice) return false;
         if (document.getElementById('filterHargaMax').value !== '' && r.harga_bulanan_norm > maxPrice) return false;
         if (!matchesFacilityFilter(r, facility)) return false;
@@ -280,6 +386,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       refreshTableControls();
       setupPlotDownloads();
       if (!document.getElementById('tab4').classList.contains('hidden') && LEAFLET_MAP) initOrUpdateMap();
+      scheduleSummaryRefresh();
     }
 
     function resetGlobalFilter() {
@@ -287,6 +394,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       document.getElementById('filterKategori').value = 'ALL';
       document.getElementById('filterJenisKos').value = 'ALL';
       document.getElementById('filterPeriode').value = 'ALL';
+      document.getElementById('filterTahun').value = 'ALL';
       document.getElementById('filterHargaMin').value = '';
       document.getElementById('filterHargaMax').value = '';
       document.getElementById('filterFasilitas').value = 'ALL';
@@ -1904,6 +2012,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         console.warn('Preferensi sidebar tidak dapat dibaca.', e);
       }
       setupTableControls();
+      populateGlobalFilterOptions();
       applyGlobalFilter();
       runPredictionCalculator();
       syncWithBackendApi();
