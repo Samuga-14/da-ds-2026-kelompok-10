@@ -49,10 +49,37 @@ bukan langsung dibuang.
 
 ## 5. Hubungan Fasilitas dengan Harga
 
-Fasilitas AC, Wi-Fi, dan tipe kamar mandi dibandingkan menggunakan median tarif.
-Nilai median dipilih untuk mengurangi dampak nilai ekstrem. Karena analisis belum
-melakukan pengendalian lokasi, luas kamar, dan lantai, hasilnya hanya menunjukkan
-hubungan deskriptif.
+Analisis Issue #26 membandingkan tarif setara bulanan berdasarkan AC, Wi-Fi,
+tipe kamar mandi, keamanan kos, dan lahan parkir pada subset 312 baris
+`accepted_for_analysis = 1`. Ringkasan menggunakan median sebagai ukuran pusat
+utama dan rata-rata sebagai pelengkap. Kandidat outlier dihitung dengan aturan IQR
+per kelompok, tanpa menghapus baris.
+
+| Fasilitas | Kelompok | Ukuran | Median Rp/bulan | Rata-rata Rp/bulan | Outlier IQR |
+|---|---|---:|---:|---:|---:|
+| AC | Ada AC | 312 | 687.500 | 721.958 | 13 |
+| Wi-Fi | Ada Wi-Fi | 242 | 750.000 | 770.200 | 14 |
+| Wi-Fi | Tanpa Wi-Fi | 70 | 550.000 | 555.179 | 2 |
+| Kamar mandi | Dalam | 256 | 725.000 | 770.785 | 14 |
+| Kamar mandi | Luar | 56 | 500.000 | 498.750 | 6 |
+| Keamanan | Penjaga & CCTV | 70 | 850.000 | 943.869 | 1 |
+| Keamanan | CCTV saja | 170 | 650.000 | 694.000 | 10 |
+| Keamanan | Tidak ada | 72 | 550.000 | 572.222 | 1 |
+| Parkir | Mobil & Motor | 143 | 825.000 | 866.568 | 10 |
+| Parkir | Motor saja | 131 | 600.000 | 624.129 | 5 |
+| Parkir | Tidak ada | 38 | 500.000 | 515.022 | 2 |
+
+Pada seluruh 328 baris staging, kolom `ac` bernilai `1` sehingga tidak tersedia
+kelompok pembanding tanpa AC. Karena itu, pengaruh AC tidak dapat dihitung dari data ini.
+
+Unit dengan Wi-Fi memiliki median Rp200.000 lebih tinggi daripada unit tanpa Wi-Fi;
+kamar mandi dalam median Rp225.000 lebih tinggi daripada kamar mandi luar.
+Untuk keamanan, median Penjaga & CCTV Rp200.000 di atas CCTV saja dan Rp300.000
+di atas tanpa keamanan. Untuk parkir, median Mobil & Motor Rp225.000 di atas
+Motor saja dan Rp325.000 di atas tanpa parkir. Perbedaan ini deskriptif:
+lokasi, luas kamar, lantai, tipe penghuni, dan kombinasi fasilitas belum
+dikendalikan. Ukuran kelompok juga tidak seimbang. Temuan tidak membuktikan
+sebab-akibat atau nilai tambahan tarif yang dapat dipastikan.
 
 ## 6. Hubungan Jarak Fasilitas dengan Harga
 

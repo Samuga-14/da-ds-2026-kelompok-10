@@ -635,7 +635,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
     function renderTab3() {
       const survey = APP_PAYLOAD.survey_eda;
       if (!survey) {
-        ['plotPriceDistribution', 'plotAreaDistribution', 'plotCategoryPrice', 'plotFurnitur', 'plotSkorFasilitasLine', 'plotSumberAir', 'plotKeamanan', 'plotFasilitasTarif', 'plotJarakTarif', 'plotDataQuality'].forEach(id => {
+        ['plotPriceDistribution', 'plotAreaDistribution', 'plotCategoryPrice', 'plotFurnitur', 'plotSkorFasilitasLine', 'plotSumberAir', 'plotFasilitasTarif', 'plotDistanceScatter', 'plotJarakTarif', 'plotMissingValue', 'plotOutlierValue'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.innerHTML = '<p class="text-xs text-slate-500 p-5 text-center">Memuat ringkasan EDA survei...</p>';
         });
@@ -697,35 +697,59 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         yaxis: { title: 'Jumlah unit kos' }
       }), PLOTLY_CONFIG);
 
-      const categoryTraces = survey.kategori_penghuni.map((item, index) => ({
-        x: [item.label],
-        y: [Math.round(item.median)],
-        type: 'bar',
-        name: item.label,
-        marker: { color: ['#2563eb', '#14b8a6', '#f59e0b'][index % 3] },
-        customdata: [item.count],
-        hovertemplate: '<b>%{x}</b><br>Median tarif: Rp %{y:,.0f}<br>Jumlah unit: %{customdata}<extra></extra>'
-      }));
-      Plotly.react('plotCategoryPrice', [
-        {
-          x: survey.kecamatan.map(item => item.label),
-          y: survey.kecamatan.map(item => Math.round(item.median)),
-          type: 'bar',
-          name: 'Per kecamatan',
-          marker: { color: '#2563eb' },
-          customdata: survey.kecamatan.map(item => item.count),
-          xaxis: 'x', yaxis: 'y',
-          hovertemplate: '<b>%{x}</b><br>Median: Rp %{y:,.0f}<br>Jumlah: %{customdata}<extra></extra>'
-        },
-        ...categoryTraces.map(trace => ({ ...trace, xaxis: 'x2', yaxis: 'y2' }))
-      ], baseDarkLayout({
-        grid: { rows: 1, columns: 2, pattern: 'independent' },
-        margin: { t: 20, r: 20, b: 65, l: 60 },
-        xaxis: { domain: [0, 0.62], title: 'Kecamatan', tickangle: -35, automargin: true },
-        yaxis: { title: 'Median tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
-        xaxis2: { domain: [0.68, 1], title: 'Kategori penghuni' },
-        yaxis2: { title: 'Median tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
-        showlegend: false
+      const categoryDistricts = [...new Set(FILTERED_RECORDS.map(r => r.kecamatan).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'id'));
+      const categoryLabels = CATEGORY_META.map(category => category.label);
+      const categoryValues = CATEGORY_META.map(category =>
+        categoryDistricts.map(district => {
+          const groupRows = FILTERED_RECORDS.filter(r =>
+            r.kecamatan === district &&
+            normalizeCategory(r.kategori_penghuni) === category.key &&
+            Number.isFinite(Number(r.harga_bulanan_norm))
+          );
+          return groupRows.length
+            ? Math.round(median(groupRows.map(r => Number(r.harga_bulanan_norm))))
+            : null;
+        })
+      );
+      const categoryCounts = CATEGORY_META.map(category =>
+        categoryDistricts.map(district =>
+          FILTERED_RECORDS.filter(r =>
+            r.kecamatan === district &&
+            normalizeCategory(r.kategori_penghuni) === category.key &&
+            Number.isFinite(Number(r.harga_bulanan_norm))
+          ).length
+        )
+      );
+      const categoryMedians = categoryValues.flat().filter(value => value !== null);
+      Plotly.react('plotCategoryPrice', [{
+        z: categoryValues,
+        x: categoryDistricts,
+        y: categoryLabels,
+        customdata: categoryCounts,
+        type: 'heatmap',
+        colorscale: [
+          [0, '#eff6ff'],
+          [0.2, '#bfdbfe'],
+          [0.42, '#60a5fa'],
+          [0.68, '#2563eb'],
+          [1, '#1e3a8a']
+        ],
+        zsmooth: false,
+        zauto: false,
+        zmin: categoryMedians.length ? Math.min(...categoryMedians) : undefined,
+        zmax: categoryMedians.length ? Math.max(...categoryMedians) : undefined,
+        text: categoryValues.map(row => row.map(value =>
+          value === null ? '' : `Rp${Math.round(value / 1000)} rb`
+        )),
+        texttemplate: '%{text}',
+        textfont: { color: '#0f172a', size: 11 },
+        hovertemplate: '<b>%{x} - %{y}</b><br>Median tarif: Rp %{z:,.0f}<br>Jumlah unit: %{customdata}<extra></extra>',
+        colorbar: { title: 'Median (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' }
+      }], baseDarkLayout({
+        margin: { t: 20, r: 85, b: 90, l: 70 },
+        xaxis: { title: 'Kecamatan', tickangle: -35, automargin: true },
+        yaxis: { title: 'Kategori penghuni', autorange: 'reversed' }
       }), PLOTLY_CONFIG);
 
       Plotly.react('plotFurnitur', [{
@@ -759,43 +783,78 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         yaxis: { title: 'Median tarif (Rp/bulan)', tickprefix: 'Rp ', tickformat: ',.0f' }
       }), PLOTLY_CONFIG);
 
-      const facilityLabels = [];
-      const facilityValues = [];
-      Object.entries(survey.facility_groups).forEach(([group, values]) => {
-        Object.entries(values).forEach(([label, value]) => {
-          if (value !== null) {
-            facilityLabels.push(`${group}: ${label}`);
-            facilityValues.push(Math.round(value));
-          }
-        });
-      });
-      Plotly.react('plotSumberAir', [{
-        x: facilityLabels,
-        y: facilityValues,
-        type: 'bar',
-        marker: { color: '#10b981' },
-        hovertemplate: '<b>%{x}</b><br>Median tarif: Rp %{y:,.0f}/bulan<extra></extra>'
-      }], baseDarkLayout({
-        margin: { t: 20, r: 20, b: 100, l: 60 },
-        xaxis: { tickangle: -30 },
-        yaxis: { title: 'Median tarif (Rp/bulan)', tickprefix: 'Rp ', tickformat: ',.0f' }
-      }), PLOTLY_CONFIG);
+      const facilityComparisons = [
+        {
+          facility: 'AC',
+          options: [
+            { label: 'Ada AC', match: r => r.ac_non_ac === 'ac' },
+            { label: 'Tidak ada AC', match: r => r.ac_non_ac === 'non-ac' }
+          ]
+        },
+        {
+          facility: 'Wi-Fi',
+          options: [
+            { label: 'Ada Wi-Fi', match: r => r.wifi_non_wifi === 'wifi' },
+            { label: 'Tanpa Wi-Fi', match: r => r.wifi_non_wifi === 'non_wifi' }
+          ]
+        },
+        {
+          facility: 'Kamar mandi',
+          options: [
+            { label: 'KM dalam', match: r => r.tipe_kamar_mandi === 'dalam' },
+            { label: 'KM luar', match: r => r.tipe_kamar_mandi === 'luar' }
+          ]
+        },
+        {
+          facility: 'Keamanan',
+          options: [
+            { label: 'Penjaga + CCTV', match: r => r.keamanan_kos === 'Penjaga & CCTV' },
+            { label: 'CCTV saja', match: r => r.keamanan_kos === 'CCTV Saja' },
+            { label: 'Tanpa keamanan', match: r => r.keamanan_kos === 'Tidak Ada' }
+          ]
+        },
+        {
+          facility: 'Parkir',
+          options: [
+            { label: 'Mobil + motor', match: r => r.lahan_parkir === 'Mobil & Motor' },
+            { label: 'Motor saja', match: r => r.lahan_parkir === 'Motor Saja' },
+            { label: 'Tanpa parkir', match: r => r.lahan_parkir === 'Tidak Ada' }
+          ]
+        }
+      ];
+      const facilityPalette = ['#2563eb', '#06b6d4', '#8b5cf6', '#14b8a6', '#f59e0b'];
+      const facilityRows = facilityComparisons.flatMap((group, groupIndex) =>
+        group.options.map(option => {
+          const rows = FILTERED_RECORDS.filter(r =>
+            option.match(r) &&
+            Number.isFinite(Number(r.harga_bulanan_norm))
+          );
+          return rows.length ? {
+            facility: group.facility,
+            label: `${group.facility}: ${option.label}`,
+            median: Math.round(median(rows.map(r => Number(r.harga_bulanan_norm)))),
+            mean: Math.round(mean(rows.map(r => Number(r.harga_bulanan_norm)))),
+            count: rows.length,
+            color: facilityPalette[groupIndex]
+          } : null;
+        })
+      ).filter(Boolean);
 
-      const distanceRows = FILTERED_RECORDS.filter(r =>
-        Number.isFinite(Number(r.jarak_ke_kampus_kantor_sekolah_terdekat_km)) &&
-        Number.isFinite(Number(r.harga_bulanan_norm))
-      );
-      Plotly.react('plotKeamanan', [{
-        x: distanceRows.map(r => Number(r.jarak_ke_kampus_kantor_sekolah_terdekat_km)),
-        y: distanceRows.map(r => r.harga_bulanan_norm),
-        mode: 'markers',
-        type: 'scatter',
-        marker: { color: '#6366f1', size: 7, opacity: 0.7 },
-        hovertemplate: 'Jarak kampus: %{x:.2f} km<br>Tarif: Rp %{y:,.0f}/bulan<extra></extra>'
+      Plotly.react('plotSumberAir', [{
+        y: facilityRows.map(row => row.label),
+        x: facilityRows.map(row => row.median),
+        customdata: facilityRows.map(row => [row.count, row.mean]),
+        type: 'bar',
+        orientation: 'h',
+        marker: {
+          color: facilityRows.map(row => row.color),
+          line: { color: '#ffffff', width: 1 }
+        },
+        hovertemplate: '<b>%{y}</b><br>Median tarif: Rp %{x:,.0f}/bulan<br>Rata-rata: Rp %{customdata[1]:,.0f}/bulan<br>Jumlah unit: %{customdata[0]}<extra></extra>'
       }], baseDarkLayout({
-        xaxis: { title: 'Jarak ke kampus/kantor (km)' },
-        yaxis: { title: 'Tarif bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
-        hovermode: 'closest'
+        margin: { t: 20, r: 25, b: 55, l: 155 },
+        xaxis: { title: 'Median tarif (Rp/bulan)', tickprefix: 'Rp ', tickformat: ',.0f' },
+        yaxis: { automargin: true, categoryorder: 'array', categoryarray: [...facilityRows.map(row => row.label)].reverse() }
       }), PLOTLY_CONFIG);
 
       const scoreRows = FILTERED_RECORDS.filter(r =>
@@ -815,66 +874,82 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         hovermode: 'closest'
       }), PLOTLY_CONFIG);
 
+      const distanceLabelMap = {
+        jarak_ke_kampus_kantor_sekolah_terdekat_km: 'Kampus/Kantor',
+        jarak_ke_pasar_km: 'Pasar',
+        jarak_krusial_km: 'Tempat krusial',
+        jarak_laundry_m: 'Laundry',
+        jarak_ibadah_m: 'Tempat ibadah',
+        jarak_pusat_kota_m: 'Pusat kota',
+        jarak_ke_jalan_raya_m: 'Jalan raya'
+      };
+      const distanceCorrelation = survey.distance_corr
+        .map(item => ({
+          label: distanceLabelMap[item.label] || item.label
+            .replace(/^jarak_/, '')
+            .replace(/_m$|_km$/, '')
+            .replaceAll('_', ' '),
+          correlation: item.correlation
+        }))
+        .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
       Plotly.react('plotJarakTarif', [{
-        y: survey.distance_corr.map(item => item.label),
-        x: survey.distance_corr.map(item => item.correlation),
+        y: distanceCorrelation.map(item => item.label),
+        x: distanceCorrelation.map(item => item.correlation),
         type: 'bar',
         orientation: 'h',
         marker: { color: '#6366f1' },
         hovertemplate: '<b>%{y}</b><br>Korelasi Spearman: %{x:.2f}<extra></extra>'
       }], baseDarkLayout({
-        margin: { t: 20, r: 20, b: 45, l: 150 },
-        xaxis: { title: 'Korelasi Spearman', zeroline: true, zerolinecolor: '#334155' }
+        margin: { t: 20, r: 35, b: 55, l: 150 },
+        xaxis: { title: 'Korelasi Spearman', range: [-1, 1], zeroline: true, zerolinecolor: '#334155' },
+        yaxis: { automargin: true, categoryorder: 'array', categoryarray: [...distanceCorrelation.map(item => item.label)].reverse() }
       }), PLOTLY_CONFIG);
 
-      const quality = survey.quality;
-      const statusLabels = ['Raw', 'Lolos analisis', 'Model ready', 'Duplikasi logis', 'Kandidat outlier'];
-      const statusValues = [
-        quality.raw_rows,
-        quality.accepted_rows,
-        quality.model_ready,
-        quality.logical_duplicates,
-        quality.outliers
-      ];
-      Plotly.react('plotDataQuality', [
-        {
-          x: ['Missing value'],
-          y: [quality.missing.reduce((sum, item) => sum + item.count, 0)],
-          type: 'bar',
-          name: 'Missing',
-          marker: { color: '#f97316' },
-          hovertemplate: 'Total nilai kosong: %{y}<extra></extra>',
-          xaxis: 'x', yaxis: 'y'
-        },
-        {
-          x: ['Tarif'],
-          y: [survey.outlier.prices],
-          type: 'box',
-          name: 'Outlier IQR',
-          boxpoints: 'outliers',
-          marker: { color: '#dc2626' },
-          hovertemplate: 'Tarif: Rp %{y:,.0f}<extra></extra>',
-          xaxis: 'x2', yaxis: 'y2'
-        },
-        {
-          x: statusLabels,
-          y: statusValues,
-          type: 'bar',
-          name: 'Status data',
-          marker: { color: '#6366f1' },
-          hovertemplate: '<b>%{x}</b><br>Jumlah: %{y}<extra></extra>',
-          xaxis: 'x3', yaxis: 'y3'
-        }
-      ], baseDarkLayout({
-        grid: { rows: 1, columns: 3, pattern: 'independent' },
-        margin: { t: 25, r: 15, b: 80, l: 55 },
-        xaxis: { domain: [0, 0.28], title: 'Missing' },
-        yaxis: { title: 'Jumlah', domain: [0, 1] },
-        xaxis2: { domain: [0.36, 0.62], title: 'Outlier IQR' },
-        yaxis2: { title: 'Tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f', domain: [0, 1] },
-        xaxis3: { domain: [0.7, 1], title: 'Status', tickangle: -35, automargin: true },
-        yaxis3: { title: 'Jumlah baris', domain: [0, 1] },
-        showlegend: false
+      const distanceScatterRows = FILTERED_RECORDS.filter(r =>
+        Number.isFinite(Number(r.jarak_ke_kampus_kantor_sekolah_terdekat_km)) &&
+        Number.isFinite(Number(r.harga_bulanan_norm))
+      );
+      Plotly.react('plotDistanceScatter', [{
+        x: distanceScatterRows.map(r => Number(r.jarak_ke_kampus_kantor_sekolah_terdekat_km)),
+        y: distanceScatterRows.map(r => Number(r.harga_bulanan_norm)),
+        mode: 'markers',
+        type: 'scatter',
+        marker: { color: '#6366f1', size: 7, opacity: 0.65 },
+        hovertemplate: 'Jarak kampus/kantor: %{x:.2f} km<br>Tarif: Rp %{y:,.0f}/bulan<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 20, r: 20, b: 60, l: 65 },
+        xaxis: { title: 'Jarak ke kampus/kantor (km)', automargin: true },
+        yaxis: { title: 'Tarif bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
+        hovermode: 'closest'
+      }), PLOTLY_CONFIG);
+
+      const missingItems = (survey.quality.missing || [])
+        .filter(item => item.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+      Plotly.react('plotMissingValue', [{
+        y: missingItems.map(item => item.column),
+        x: missingItems.map(item => item.count),
+        type: 'bar',
+        orientation: 'h',
+        marker: { color: '#f97316' },
+        hovertemplate: '<b>%{y}</b><br>Nilai kosong: %{x}<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 15, r: 15, b: 45, l: 125 },
+        xaxis: { title: 'Jumlah nilai kosong' },
+        yaxis: { automargin: true }
+      }), PLOTLY_CONFIG);
+
+      Plotly.react('plotOutlierValue', [{
+        y: survey.outlier.prices,
+        type: 'box',
+        name: 'Tarif',
+        boxpoints: 'outliers',
+        marker: { color: '#dc2626' },
+        hovertemplate: 'Tarif: Rp %{y:,.0f}<extra></extra>'
+      }], baseDarkLayout({
+        margin: { t: 15, r: 15, b: 45, l: 55 },
+        yaxis: { title: 'Tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' }
       }), PLOTLY_CONFIG);
 
     }

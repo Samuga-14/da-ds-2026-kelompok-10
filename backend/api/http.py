@@ -147,20 +147,44 @@ def _build_survey_eda_payload():
     hist_prices = np.histogram(prices, bins=12)
     hist_areas = np.histogram(areas, bins=12)
 
-    wifi_labels = analysis["wifi"].fillna("").astype(str).str.lower().str.contains("ada|tersedia")
-    bathroom_labels = analysis["tipe_kamar_mandi"].fillna("").astype(str).str.lower().str.contains("dalam")
+    wifi_labels = analysis["wifi"].fillna("").astype(str).str.lower().str.strip().eq("ada")
+    bathroom_in = analysis["tipe_kamar_mandi"].fillna("").astype(str).str.lower().str.contains("dalam")
+    bathroom_out = analysis["tipe_kamar_mandi"].fillna("").astype(str).str.lower().str.contains("luar")
+
+    def facility_stats(mask):
+        values = pd.to_numeric(analysis.loc[mask, "harga_bulanan_norm"], errors="coerce").dropna()
+        if values.empty:
+            return {"median": None, "mean": None, "count": 0, "outliers_iqr": 0}
+        q1, q3 = values.quantile([0.25, 0.75])
+        iqr = q3 - q1
+        outliers = int(((values < q1 - 1.5 * iqr) | (values > q3 + 1.5 * iqr)).sum())
+        return {
+            "median": float(values.median()),
+            "mean": float(values.mean()),
+            "count": int(len(values)),
+            "outliers_iqr": outliers,
+        }
+
     facility_groups = {
         "AC": {
-            "Ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(1), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(1)).any() else None,
-            "Tidak ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(0), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(0)).any() else None,
+            "Ada AC": facility_stats(analysis["ac"].eq(1)),
+            "Tidak ada AC": facility_stats(analysis["ac"].eq(0)),
         },
         "Wi-Fi": {
-            "Ada Wi-Fi": float(pd.to_numeric(analysis.loc[wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if wifi_labels.any() else None,
-            "Tanpa Wi-Fi": float(pd.to_numeric(analysis.loc[~wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~wifi_labels).any() else None,
+            "Ada Wi-Fi": facility_stats(wifi_labels),
+            "Tanpa Wi-Fi": facility_stats(~wifi_labels),
         },
         "Kamar mandi": {
-            "KM dalam": float(pd.to_numeric(analysis.loc[bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if bathroom_labels.any() else None,
-            "KM luar/lainnya": float(pd.to_numeric(analysis.loc[~bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~bathroom_labels).any() else None,
+            "KM dalam": facility_stats(bathroom_in),
+            "KM luar": facility_stats(bathroom_out),
+        },
+        "Keamanan": {
+            label: facility_stats(analysis["keamanan_kos"].eq(label))
+            for label in ["Penjaga & CCTV", "CCTV Saja", "Tidak Ada"]
+        },
+        "Parkir": {
+            label: facility_stats(analysis["lahan_parkir"].eq(label))
+            for label in ["Mobil & Motor", "Motor Saja", "Tidak Ada"]
         },
     }
 

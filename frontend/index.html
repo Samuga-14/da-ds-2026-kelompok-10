@@ -329,72 +329,79 @@
     <!-- HALAMAN 3 -->
     <section id="tab3" class="tab-section hidden space-y-6">
       <div>
-        <h2 class="text-2xl font-bold text-white">EDA & Kualitas Data Survei Kos Toba</h2>
-        <p class="text-sm text-slate-400 mt-1">Eksplorasi tarif, lokasi, luas kamar, fasilitas, jarak, outlier, missing value, dan kesiapan data model.</p>
+        <h2 class="text-2xl font-bold text-white">Analisis Faktor Penentu Harga Kos</h2>
+        <p class="text-sm text-slate-400 mt-1">Eksplorasi distribusi tarif, luas kamar, lantai, fasilitas, kelengkapan fasilitas, dan akses jarak yang berpotensi memengaruhi harga sewa.</p>
+        <p class="text-xs text-slate-500 mt-2 max-w-5xl">Setiap visualisasi dipilih sesuai pertanyaan analisis: histogram untuk membaca pola sebaran, scatter untuk melihat hubungan dua variabel, dan diagram batang untuk membandingkan nilai tipikal antar kelompok.</p>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">1. Distribusi Harga Bulanan Normalisasi</h3>
           <div id="plotPriceDistribution" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik menunjukkan rentang tarif yang paling banyak muncul. Median digunakan sebagai tarif tipikal karena lebih tahan terhadap harga ekstrem.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> histogram dipilih untuk melihat bentuk distribusi satu variabel numerik sekaligus rentang tarif yang paling sering muncul. Garis median menandai nilai tengah sehingga pola pusat data lebih mudah dibaca meskipun terdapat harga ekstrem.</p>
         </div>
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">2. Distribusi Luas Kamar</h3>
           <div id="plotAreaDistribution" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik menunjukkan ukuran kamar yang paling umum dan membantu membaca apakah variasi luas dapat menjelaskan variasi tarif.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> histogram cocok untuk meringkas luas kamar, yaitu variabel numerik yang berkelompok, menjadi rentang ukuran yang umum tanpa menampilkan ratusan nilai individual.</p>
         </div>
       </div>
 
+      <div class="card-dark">
+        <h3 class="text-base font-semibold text-white mb-2">3. Harga Berdasarkan Kecamatan dan Kategori Penghuni</h3>
+        <div id="plotCategoryPrice" class="plot-box"></div>
+        <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> heatmap dipilih untuk membandingkan median tarif pada dua variabel kategori sekaligus: kecamatan pada sumbu X dan kategori penghuni pada sumbu Y. Warna serta angka pada sel langsung menunjukkan perbedaan antar kombinasi tanpa dua grafik yang terpisah.</p>
+      </div>
+
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">3. Harga Berdasarkan Kecamatan dan Kategori Penghuni</h3>
-          <div id="plotCategoryPrice" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: median tarif dibandingkan antar kecamatan dan kategori putra, putri, serta campur. Perbedaan ini bersifat deskriptif dan juga dapat dipengaruhi fasilitas serta luas kamar.</p>
-        </div>
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">4. Luas Kamar dan Tarif Bulanan</h3>
           <div id="plotFurnitur" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: titik yang cenderung naik ke kanan menunjukkan kamar lebih luas cenderung memiliki tarif lebih tinggi, tetapi pola tetap perlu dibaca bersama fasilitas dan lokasi.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> scatter plot dipilih karena hubungan antara luas kamar dan tarif merupakan hubungan dua variabel numerik. Setiap titik mewakili satu unit kos, sehingga arah dan penyebaran hubungan dapat dilihat langsung.</p>
         </div>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">5. Median Tarif per Jumlah Lantai</h3>
           <div id="plotSkorFasilitasLine" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik membandingkan tarif tipikal berdasarkan jumlah lantai. Kelompok dengan sedikit unit harus dianggap sebagai indikasi awal.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> diagram batang dipilih untuk membandingkan median tarif antar kategori jumlah lantai. Median dipakai sebagai ukuran tipikal karena lebih tahan terhadap nilai tarif yang ekstrem daripada rata-rata.</p>
         </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">6. Hubungan Fasilitas dengan Harga</h3>
+          <h3 class="text-base font-semibold text-white mb-2">6. Pengaruh Fasilitas Kamar terhadap Tarif</h3>
           <div id="plotSumberAir" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: median tarif dengan AC, Wi-Fi, atau kamar mandi dalam dibandingkan dengan kondisi tanpa fasilitas tersebut.</p>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">7. Hubungan Jarak Fasilitas dengan Harga</h3>
-          <div id="plotKeamanan" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: sebaran titik memperlihatkan apakah jarak ke kampus atau kantor berkaitan dengan tarif. Hubungan ini bukan bukti sebab-akibat.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Interpretasi:</strong> grafik membandingkan median tarif untuk AC, Wi-Fi, tipe kamar mandi, sistem keamanan, dan lahan parkir. Warna membedakan jenis fasilitas; setiap batang memiliki jumlah sampel pada tooltip. Perbedaan bersifat deskriptif dan belum membuktikan hubungan sebab-akibat.</p>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">8. Skor Kelengkapan Fasilitas dan Tarif</h3>
+          <h3 class="text-base font-semibold text-white mb-2">7. Kelengkapan Fasilitas dan Tarif</h3>
           <div id="plotFasilitasTarif" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: skor yang lebih tinggi berarti fasilitas lebih lengkap. Pola naik menunjukkan kecenderungan tarif meningkat bersama kelengkapan fasilitas.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> scatter plot dipilih untuk memeriksa hubungan antara skor kelengkapan fasilitas numerik dan tarif numerik pada tingkat unit kos. Pola titik membantu melihat apakah peningkatan skor umumnya diikuti kenaikan tarif.</p>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">8. Sebaran Jarak Fasilitas terhadap Tarif</h3>
+          <div id="plotDistanceScatter" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> scatter plot digunakan untuk menampilkan hubungan jarak ke kampus atau kantor dengan tarif pada tiap unit kos. Bentuk penyebaran titik membantu melihat tren atau variasi yang tidak terlihat hanya dari satu angka korelasi.</p>
+        </div>
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">9. Korelasi Jarak terhadap Tarif</h3>
           <div id="plotJarakTarif" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: korelasi negatif berarti lokasi yang lebih dekat cenderung bertarif lebih tinggi. Nilai mendekati nol berarti hubungan monoton lemah.</p>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> batang horizontal dipilih untuk membandingkan kekuatan korelasi Spearman pada beberapa variabel jarak. Batas sumbu -1 sampai 1 membuat semua nilai mudah dibandingkan secara konsisten. Scatter plot terpisah digunakan sebagai pemeriksaan visual tren, sedangkan grafik ini merangkum kekuatan hubungan antar semua jenis jarak.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">10. Missing Value</h3>
+          <div id="plotMissingValue" class="plot-box" style="min-height:280px"></div>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> batang horizontal dipilih untuk menampilkan kolom dengan nilai kosong agar nama kolom dapat dibaca jelas. Grafik menunjukkan kolom mana yang perlu penanganan sebelum pemodelan.</p>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">10. Missing, Outlier, dan Status Data</h3>
-          <div id="plotDataQuality" class="plot-box"></div>
-          <p class="text-xs text-slate-400 mt-2">Interpretasi: missing menunjukkan kolom yang belum lengkap, outlier adalah kandidat berdasarkan IQR, dan status menunjukkan jumlah data yang siap dianalisis atau digunakan model.</p>
+          <h3 class="text-base font-semibold text-white mb-2">11. Outlier Tarif</h3>
+          <div id="plotOutlierValue" class="plot-box" style="min-height:280px"></div>
+          <p class="text-xs text-slate-400 mt-2"><strong>Alasan chart:</strong> box plot menampilkan median, kuartil, dan titik kandidat outlier IQR pada satu visual yang ringkas. Ini memudahkan pemeriksaan penyimpangan tarif ekstrem.</p>
         </div>
       </div>
     </section>
