@@ -27,7 +27,12 @@ import pandas as pd
 import sklearn
 
 from models.features import FEATURE_COLS, add_derived_features, add_model_features, build_feature_frame
-from services.analytics_service import enrich_price_analysis, feature_importance
+from services.analytics_service import (
+    FACILITY_FILTERS,
+    enrich_price_analysis,
+    feature_importance,
+    get_price_summary,
+)
 from services.database import connect, connection, ensure_readable_object, validate
 from server_config import (
     BASE_DIR,
@@ -42,6 +47,9 @@ from server_config import (
 )
 LOGGER = logging.getLogger("tobakost")
 MODEL_BUNDLE = None
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+REGISTRY_MANIFEST_PATH = os.path.join(MODEL_DIR, "registry", "model_manifest.json")
+MANIFEST_REQUIRED_KEYS = ("model_artifact", "features", "best_algorithm", "sklearn_version")
 
 
 class RequestValidationError(ValueError):
@@ -59,20 +67,57 @@ def ensure_database():
         subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
 
 
+def read_model_manifest():
+    """Baca models/registry/model_manifest.json: penunjuk model terbaik yang aktif."""
+    if not os.path.exists(REGISTRY_MANIFEST_PATH):
+        raise ModelUnavailableError(
+            "Manifest model tidak ditemukan di models/registry/. Jalankan `python models/train_models.py` dari folder proyek."
+        )
+    try:
+        with open(REGISTRY_MANIFEST_PATH, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ModelUnavailableError(
+            "Manifest model rusak atau tidak bisa dibaca. Jalankan `python models/train_models.py`."
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ModelUnavailableError("Format manifest model tidak valid; latih ulang dengan models/train_models.py.")
+    missing = [key for key in MANIFEST_REQUIRED_KEYS if key not in manifest]
+    if missing:
+        raise ModelUnavailableError(f"Manifest model tidak lengkap, kunci hilang: {', '.join(missing)}.")
+    return manifest
+
+
+def resolve_model_artifact(manifest):
+    """Ubah model_artifact di manifest menjadi path file; wajib berada di dalam folder models/."""
+    artifact_path = os.path.abspath(os.path.join(BASE_DIR, str(manifest["model_artifact"])))
+    models_root = os.path.abspath(MODEL_DIR)
+    if os.path.commonpath([artifact_path, models_root]) != models_root:
+        raise ModelUnavailableError("Lokasi model pada manifest berada di luar folder models/.")
+    if not os.path.exists(artifact_path):
+        raise ModelUnavailableError(
+            f"File model {manifest['model_artifact']} tidak ditemukan. Jalankan `python models/train_models.py` untuk melatih dan menyimpan model."
+        )
+    return artifact_path
+
+
 def load_model_bundle():
     global MODEL_BUNDLE
     ensure_database()
     if MODEL_BUNDLE is not None:
         return MODEL_BUNDLE
-    if not os.path.exists(MODEL_PKL_PATH):
+
+    manifest = read_model_manifest()
+    if manifest["features"] != FEATURE_COLS:
         raise ModelUnavailableError(
-            "File model tidak ditemukan. Jalankan `python models/train_models.py` dari folder proyek untuk melatih dan menyimpan model."
+            "Daftar fitur pada manifest tidak sesuai dengan fitur API; latih ulang model dengan models/train_models.py."
         )
+    artifact_path = resolve_model_artifact(manifest)
     try:
-        with open(MODEL_PKL_PATH, "rb") as f:
+        with open(artifact_path, "rb") as f:
             bundle = pickle.load(f)
     except Exception as exc:
-        LOGGER.exception("Gagal memuat bundle model dari %s", MODEL_PKL_PATH)
+        LOGGER.exception("Gagal memuat bundle model dari %s", artifact_path)
         raise ModelUnavailableError(
             "File model tidak kompatibel atau rusak. Jalankan `python models/train_models.py` dengan dependensi dari requirements.txt."
         ) from exc
@@ -87,6 +132,8 @@ def load_model_bundle():
         )
     if bundle.get("features") != FEATURE_COLS:
         raise ModelUnavailableError("Urutan fitur model tidak sesuai dengan fitur API; latih ulang model.")
+    if bundle.get("features") != manifest["features"] or bundle.get("best_algorithm") != manifest["best_algorithm"]:
+        raise ModelUnavailableError("Manifest tidak cocok dengan isi file model; latih ulang dengan models/train_models.py.")
     expected_models = {
         "Linear Regression (Baseline)",
         "Ridge Regression (L2 Tuned)",
@@ -224,6 +271,105 @@ def _build_survey_eda_payload():
             "upper": upper,
         },
     }
+def _read_summary_filters(query):
+    """Read and validate the supported /api/summary query parameters."""
+    with connection() as conn:
+        districts = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kecamatan FROM dim_lokasi "
+                "WHERE kecamatan IS NOT NULL ORDER BY kecamatan"
+            ).fetchall()
+        ]
+        resident_categories = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kategori_penghuni FROM dim_fasilitas_aturan "
+                "WHERE kategori_penghuni IS NOT NULL ORDER BY kategori_penghuni"
+            ).fetchall()
+        ]
+        payment_periods = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT sewa_tahunan_bulanan FROM dim_kontrak_sewa "
+                "WHERE sewa_tahunan_bulanan IS NOT NULL "
+                "ORDER BY sewa_tahunan_bulanan"
+            ).fetchall()
+        ]
+        start_years = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT tahun_mulai_sewa FROM dim_kontrak_sewa "
+                "WHERE tahun_mulai_sewa IS NOT NULL ORDER BY tahun_mulai_sewa"
+            ).fetchall()
+        ]
+
+    allowed_filters = {
+        "kecamatan": (districts, districts),
+        "kategori_penghuni": (
+            [str(value).lower() for value in resident_categories],
+            resident_categories,
+        ),
+        "sewa_tahunan_bulanan": (
+            [str(value).lower() for value in payment_periods],
+            payment_periods,
+        ),
+        "tahun_mulai_sewa": (start_years, start_years),
+        "fasilitas": (list(FACILITY_FILTERS), list(FACILITY_FILTERS)),
+    }
+
+    filters = {}
+    for name, (allowed_values, canonical_values) in allowed_filters.items():
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+
+        lookup = str(value).casefold()
+        matched_index = None
+        for index, allowed in enumerate(allowed_values):
+            if str(allowed).casefold() == lookup:
+                matched_index = index
+                break
+
+        if matched_index is None:
+            choices = ", ".join(str(choice) for choice in canonical_values)
+            raise RequestValidationError(
+                f"Nilai '{value}' tidak valid untuk parameter '{name}'. "
+                f"Pilihan tersedia: {choices}."
+            )
+
+        filters[name] = canonical_values[matched_index]
+
+    for name in ("harga_min", "harga_max"):
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+        try:
+            numeric_value = float(value)
+        except ValueError as exc:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            ) from exc
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            )
+        filters[name] = numeric_value
+
+    if (
+        filters.get("harga_min") is not None
+        and filters.get("harga_max") is not None
+        and filters["harga_min"] > filters["harga_max"]
+    ):
+        raise RequestValidationError(
+            "Parameter 'harga_min' tidak boleh lebih besar daripada 'harga_max'."
+        )
+
+    return filters
 
 
 def get_full_analytics_payload():
@@ -557,6 +703,15 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/data":
             try:
                 self._send_json(get_full_analytics_payload())
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
+        if path == "/api/summary":
+            try:
+                qs = parse_qs(parsed.query, keep_blank_values=True)
+                filters = _read_summary_filters(qs)
+                self._send_json(get_price_summary(filters))
             except Exception as exc:
                 self._send_api_exception(exc)
             return
