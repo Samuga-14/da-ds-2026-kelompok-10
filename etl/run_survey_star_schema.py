@@ -1,5 +1,5 @@
 """
-Load normalized survey staging data into a separate Toba survey star schema.
+Load normalized survey staging data into the Toba survey star schema.
 
 The existing dummy warehouse remains unchanged. This pipeline creates:
   data/tobakost_survey_warehouse.db
@@ -34,12 +34,15 @@ def build_survey_warehouse():
     df["kode_unit_kos"] = [f"UNIT_{index:04d}" for index in range(1, len(df) + 1)]
 
     location_columns = ["kecamatan", "desa_kelurahan", "nama_kost"]
+    if "tujuan_utama" in df.columns:
+        location_columns.append("tujuan_utama")
     dim_location = df[location_columns].drop_duplicates().reset_index(drop=True)
     dim_location["id_lokasi"] = [f"LOK_{index:03d}" for index in range(1, len(dim_location) + 1)]
 
     specification_columns = [
         "luas_kamar_m2",
         "jumlah_lantai",
+        "kategori_lantai",
         "tipe_kamar_mandi",
         "kelengkapan_kamar_mandi",
         "ac",
@@ -51,6 +54,7 @@ def build_survey_warehouse():
         "ada_cermin",
         "ada_kulkas_pribadi",
     ]
+    specification_columns = [col for col in specification_columns if col in df.columns]
     dim_specification = df[specification_columns].drop_duplicates().reset_index(drop=True)
     dim_specification["id_spesifikasi"] = [
         f"SPK_{index:03d}" for index in range(1, len(dim_specification) + 1)
@@ -86,7 +90,7 @@ def build_survey_warehouse():
     fact = fact.merge(dim_regulation, on=regulation_columns, how="left")
     fact = fact.merge(dim_contract, on=contract_columns, how="left")
 
-    fact_columns = [
+    candidate_fact_columns = [
         "id_kost",
         "kode_unit_kos",
         "nama_kost",
@@ -106,6 +110,13 @@ def build_survey_warehouse():
         "jarak_laundry_m",
         "jarak_pusat_kota_m",
         "jarak_jalan_raya_m",
+        "klasifikasi_jarak_kampus_sekolah_tempatkerja",
+        "klasifikasi_jarak_pasar_minimarket",
+        "klasifikasi_jarak_fasilitas_kesehatan",
+        "klasifikasi_jarak_tempat_ibadah",
+        "klasifikasi_jarak_laundry",
+        "klasifikasi_jarak_pusat_kota",
+        "klasifikasi_jarak_jalan_raya",
         "area_tempat_makan",
         "biaya_tambahan_rp",
         "exact_duplicate",
@@ -114,6 +125,7 @@ def build_survey_warehouse():
         "accepted_for_analysis",
         "model_ready",
     ]
+    fact_columns = [col for col in candidate_fact_columns if col in fact.columns]
     fact_table = fact[fact_columns].copy()
 
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +147,7 @@ def build_survey_warehouse():
             l.desa_kelurahan,
             s.luas_kamar_m2,
             s.jumlah_lantai,
+            s.kategori_lantai,
             s.tipe_kamar_mandi,
             s.kelengkapan_kamar_mandi,
             s.ac,

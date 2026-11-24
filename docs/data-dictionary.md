@@ -1,51 +1,57 @@
 # Data Dictionary
 
-Dataset: `data/raw/data_fix.csv`
+Dataset utama: `data/raw/Survey_Kos.csv` (928 baris, 35 kolom)
 
-Raw survey tidak diubah oleh pipeline. Output staging dibuat oleh
+File raw survey tidak diubah oleh pipeline. Output staging dibuat oleh
 `python etl/normalize_survey.py` di `data/staging/survey_clean_v1.csv`.
-Laporan kualitas tersedia di `data/quality/survey_quality_v1.json`.
+Laporan kualitas data 4 dimensi (*Completeness, Validity, Consistency, Uniqueness*)
+tersedia di `data/quality/survey_quality_v1.json`.
 
 ## Variabel Utama
 
-| Kolom staging | Definisi | Tipe | Catatan |
-|---|---|---|---|
-| `nama_kost` | Nama kos yang ditinggali responden | string | Bukan kunci unik unit |
-| `kecamatan` | Kecamatan lokasi kos | kategori | Dinormalisasi dengan title case |
-| `desa_kelurahan` | Desa atau kelurahan kos | kategori | |
-| `kategori_penghuni` | Putra, putri, atau campur | kategori | |
-| `status_penyewa` | Mahasiswa, pekerja, keluarga, atau pelajar | kategori | Nilai variasi perlu dinormalisasi lanjutan |
-| `jarak_*_m` | Jarak menuju fasilitas dalam meter | numerik | Parsing dari jawaban Google Form |
-| `luas_kamar_m2` | Luas kamar dalam meter persegi | numerik | Nilai `<= 0` atau `> 100` ditandai tidak valid |
-| `jumlah_lantai` | Posisi lantai kamar | numerik | Nilai selain 1-3 perlu ditinjau |
-| `periode_sewa` | Per bulan atau per tahun | kategori | |
-| `harga_sewa` | Harga sesuai periode yang dipilih | numerik | Belum dinormalisasi |
-| `harga_bulanan_norm` | Harga setara bulanan | numerik | Harga tahunan dibagi 12 |
-| `status_harga` | Status harga masih berlaku atau tidak | kategori | |
-| `model_ready` | Layak dipakai baseline model | boolean | Hanya baris tanpa reject, anomaly, dan duplikasi logis |
+| Kolom staging | Definisi | Tipe | Satuan / Format | Catatan Preprocessing |
+|---|---|---|---|---|
+| `timestamp_survei` | Waktu pengisian kuesioner Google Form | string | `DD/MM/YYYY HH:MM:SS` | Dipertahankan untuk pelacakan audit |
+| `nama_kost` | Nama kos yang ditinggali responden | string | Teks | Nilai `-` atau `Tidak ada nama` dinormalisasi menjadi `Kos Tanpa Nama` |
+| `kecamatan` | Kecamatan lokasi kos di Kabupaten Toba | kategori | Title Case | 16 kecamatan di Kabupaten Toba |
+| `desa_kelurahan` | Desa atau kelurahan lokasi kos | kategori | Title Case | Sinonim & variasi ejaan disatukan (`Pintubosi` -> `Pintu Bosi`, `Balige 1` -> `Balige I`, dll.) |
+| `kategori_penghuni` | Kategori penghuni kos (`Putra`, `Putri`, `Campur`) | kategori | Title Case | |
+| `status_penyewa` | Status penyewa (`Pekerja`, `Mahasiswa`, `Keluarga`, `Pelajar`) | kategori | Title Case | Variasi `Siswa`, `siswa sma`, `Pelajar SMA`, `Siswa/Pelajar` disatukan ke `Pelajar` |
+| `tujuan_utama` | Tujuan aktivitas utama terdekat (`Kampus IT Del`, `Kampus`, `Kantor`, `Sekolah`, `Tidak Disebutkan`) | kategori | Teks | Diekstrak dari jawaban pertanyaan jarak kampus/sekolah/kantor |
+| `jarak_*_m` | Jarak menuju 7 fasilitas/lokasi dalam satuan meter | numerik | Meter (`m`) | Input `km` dikonversi ke meter (`1,5 km` -> `1500`); angka tunggal `1`–`5` dikonversi ke ribuan meter; typo `300010` dikoreksi menjadi `3000` |
+| `klasifikasi_jarak_*` | Klasifikasi tingkat kedekatan jarak untuk 7 fasilitas/lokasi | kategori | 4 Kelas | `Sangat Dekat (<= 500 m)`, `Dekat (501 - 1000 m)`, `Sedang (1001 - 3000 m)`, `Jauh (> 3000 m)` |
+| `luas_kamar_m2` | Luas kamar kos | numerik | Meter persegi (`m²`) | Format perkalian dimensi (`4x4`, `3,5x5`, `3x6 m2`) dihitung otomatis ($P \times L$); typo angka ekstrem `2000` dikoreksi menjadi `200` |
+| `jumlah_lantai` | Posisi lantai kamar (numerik) | numerik | Lantai (`1`–`4`) | `bawah tanah` dipetakan ke `1`; lantai di atas `5` (mis. `9`) dipetakan ke `4` |
+| `kategori_lantai` | Kategori posisi lantai kamar | kategori | `1`, `2`, `3`, `4 - 5` | Lantai `> 5` dikelompokkan ke dalam kategori `4 - 5` |
+| `periode_sewa` | Periode pembayaran sewa (`per bulan` atau `per tahun`) | kategori | Lowercase | |
+| `sewa_tahunan` | Penanda kontrak sewa tahunan (`1` = tahunan, `0` = bulanan) | biner | `0` / `1` | |
+| `harga_sewa` | Nominal harga sewa sesuai periode pembayaran | numerik | Rupiah (`Rp`, bulat tanpa titik) | Titik pemisah ribuan (`700.000`) dihapus menjadi `700000`; penulisan singkat (`7`, `250`, `700`, `900`, `60000`) diskalakan ke nominal Rupiah penuh |
+| `harga_bulanan_norm` | Harga sewa ekuivalen bulanan (Target Pemodelan) | numerik | Rupiah/bulan (`Rp`) | Harga tahunan dibagi 12 dan dibulatkan |
+| `status_harga` | Status keberlakuan harga sewa saat ini | kategori | Teks | `Ya, masih berlaku`, `Tidak, harga sudah berubah`, atau `Kos sudah tidak beroperasi` |
+| `biaya_tambahan_rp` | Total biaya tambahan di luar harga sewa | numerik | Rupiah (`Rp`) | Akhiran `rb`/`ribu` (`100rb`) dikonversi ke `100000`; wajib `0` bila `ada_biaya_tambahan == 'Tidak'` |
 
-## Variabel Fasilitas
+## Variabel Fasilitas & Aturan
+
+| Kolom | Definisi & Standarisasi |
+|---|---|
+| `ada_dipan`, `ada_kasur`, `ada_lemari`, `ada_meja_belajar`, `ada_tv`, `ada_cermin`, `ada_kulkas_pribadi`, `ada_ventilasi`, `ada_gorden`, `ada_rak_sepatu`, `ada_gantungan_baju` | Ekstraksi biner (`0`/`1`) dari daftar multi-pilih fasilitas di dalam kamar |
+| `ac` | Ketersediaan pendingin ruangan AC (`1` = Ada, `0` = Tidak Ada) |
+| `tipe_kamar_mandi`, `km_dalam` | Standarisasi `Dalam` & `Kamar mandi dalam` -> `dalam` (`km_dalam = 1`); `Luar` & `Kamar mandi luar` -> `luar` (`km_dalam = 0`) |
+| `kloset_duduk`, `kloset_jongkok`, `ada_shower`, `ada_water_heater`, `ada_bak_mandi`, `ada_gayung` | Ekstraksi biner (`0`/`1`) kelengkapan kamar mandi (mendukung istilah `kloset duduk`/`Toilet duduk` dan `kloset Jongkok`/`Toilet Jongkok`) |
+| `listrik_termasuk`, `skema_listrik` | Status (`1` = termasuk sewa, `0` = token mandiri) dan teks skema biaya listrik |
+| `wifi`, `is_wifi`, `sumber_air`, `fasilitas_dapur`, `fasilitas_cuci_jemur` | Fasilitas bersama dan utilitas kos |
+| `keamanan_kos` | Distandarkan menjadi 4 kategori bersih: `CCTV` (menggabungkan `CCTV Saja` dan `CCTV`), `Penjaga/Satpam`, `Penjaga & CCTV`, dan `Tidak Ada` |
+| `lahan_parkir` | Distandarkan menjadi `Mobil & Motor` (menggabungkan `Mobil`, `Mobil, Motor`, `Mobil & Motor`), `Motor Saja`, dan `Tidak Ada` |
+| `aturan_jam_malam` | Distandarkan menjadi `Bebas 24 Jam` dan `Ada Batas Jam Malam` (menggabungkan `Ada Batas Jam Tertentu`) |
+| `kapasitas_kamar` | Kapasitas penghuni kamar (`1 orang`, `2 orang`, `3 orang atau lebih`) |
+
+## Kolom Penilaian Kualitas Data
 
 | Kolom | Definisi |
 |---|---|
-| `ada_dipan`, `ada_kasur`, `ada_lemari`, `ada_meja_belajar`, `ada_tv`, `ada_cermin`, `ada_kulkas_pribadi` | Ekstraksi biner dari daftar fasilitas kamar |
-| `ac` | Ada atau tidak ada pendingin ruangan |
-| `tipe_kamar_mandi` | Kamar mandi dalam atau luar |
-| `kloset_duduk`, `kloset_jongkok`, `ada_shower`, `ada_water_heater` | Ekstraksi biner kelengkapan kamar mandi |
-| `listrik_termasuk`, `skema_listrik` | Status dan skema biaya listrik |
-| `wifi`, `sumber_air`, `fasilitas_dapur`, `fasilitas_cuci_jemur` | Fasilitas bersama dan utilitas |
-| `keamanan_kos`, `lahan_parkir`, `aturan_jam_malam`, `kapasitas_kamar` | Fasilitas dan aturan hunian |
-
-## Kolom Penilaian Kualitas
-
-| Kolom | Definisi |
-|---|---|
-| `exact_duplicate` | Baris duplikat persis |
-| `duplicate_logis` | Baris yang sama pada nama, wilayah, lantai, luas, periode, dan harga |
-| `price_anomaly_iqr` | Harga normalisasi berada di luar batas IQR |
-| `rejection_reason` | Alasan baris ditolak dari analisis utama |
-| `accepted_for_analysis` | Baris lolos validasi dasar |
-| `model_ready` | Baris layak dipakai model baseline |
-
-Perubahan threshold atau aturan preprocessing harus dicatat pada commit, report kualitas,
-dan laporan mingguan sebagai metode yang dapat direproduksi.
+| `exact_duplicate` | Baris duplikat persis pada seluruh kolom (`0`/`1`) |
+| `duplicate_logis` | Baris dengan kesamaan pada `nama_kost`, `kecamatan`, `desa_kelurahan`, `jumlah_lantai`, `luas_kamar_m2`, `periode_sewa`, dan `harga_sewa` (`0`/`1`) |
+| `price_anomaly_iqr` | Harga bulanan normalisasi berada di luar batas bawah/atas metode IQR (`0`/`1`) |
+| `rejection_reason` | Alasan penolakan baris dari analisis dasar (mis. `kos tidak beroperasi`) |
+| `accepted_for_analysis` | Baris lolos validasi dasar dan kos masih aktif beroperasi (`1` = lolos) |
+| `model_ready` | Subset konservatif siap pemodelan baseline (`accepted_for_analysis == 1`, `harga_masih_berlaku == 1`, `price_anomaly_iqr == 0`, `duplicate_logis == 0`) |
