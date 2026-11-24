@@ -1,6 +1,7 @@
 # Backend, ETL, dan analisis data
 pandas>=2.0.0
 numpy>=1.24.0
+matplotlib>=3.7.0
 
 # Machine learning
 scikit-learn==1.9.1

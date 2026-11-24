@@ -57,6 +57,22 @@ def text_value(value):
     return " ".join(str(value).strip().split())
 
 
+def room_area_value(value):
+    """Parse either a numeric area or an entered room dimension such as 3 x 4."""
+    if pd.isna(value):
+        return np.nan
+
+    text = str(value).strip().lower()
+    numbers = re.findall(r"-?\d+(?:[.,]\d+)?", text)
+    if len(numbers) == 2 and any(separator in text for separator in ("x", "×", "*", "�")):
+        width = numeric_value(numbers[0])
+        length = numeric_value(numbers[1])
+        if np.isfinite(width) and np.isfinite(length):
+            return float(width * length)
+
+    return numeric_value(text)
+
+
 def normalize_survey(raw_path: Path = RAW_PATH):
     df = pd.read_csv(raw_path)
     raw_count = len(df)
@@ -125,7 +141,8 @@ def normalize_survey(raw_path: Path = RAW_PATH):
         "harga_sewa": rent,
     }
     for output, source in numeric_columns.items():
-        canonical[output] = df[source].map(numeric_value)
+        parser = room_area_value if output == "luas_kamar_m2" else numeric_value
+        canonical[output] = df[source].map(parser)
 
     canonical["jumlah_lantai"] = df[room_floor].map(numeric_value)
     canonical["tipe_kamar_mandi"] = df[bathroom_type].map(text_value).str.strip().str.lower()

@@ -19,6 +19,7 @@ import subprocess
 import webbrowser
 from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
@@ -119,6 +120,112 @@ def _json_safe(value):
     return value
 
 
+def _build_survey_eda_payload():
+    base_dir = Path(BASE_DIR)
+    staging_path = base_dir / "data" / "staging" / "survey_clean_v1.csv"
+    if not staging_path.exists():
+        return None
+
+    df = pd.read_csv(staging_path)
+    analysis = df.loc[df["accepted_for_analysis"].eq(1)].copy()
+    prices = pd.to_numeric(analysis["harga_bulanan_norm"], errors="coerce").dropna()
+    areas = pd.to_numeric(analysis["luas_kamar_m2"], errors="coerce").dropna()
+
+    def median_rows(column):
+        result = (
+            analysis.groupby(column)["harga_bulanan_norm"]
+            .agg(["count", "median"])
+            .dropna()
+            .reset_index()
+            .sort_values("median")
+        )
+        return [
+            {"label": str(row[column]), "median": float(row["median"]), "count": int(row["count"])}
+            for _, row in result.iterrows()
+        ]
+
+    hist_prices = np.histogram(prices, bins=12)
+    hist_areas = np.histogram(areas, bins=12)
+
+    wifi_labels = analysis["wifi"].fillna("").astype(str).str.lower().str.contains("ada|tersedia")
+    bathroom_labels = analysis["tipe_kamar_mandi"].fillna("").astype(str).str.lower().str.contains("dalam")
+    facility_groups = {
+        "AC": {
+            "Ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(1), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(1)).any() else None,
+            "Tidak ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(0), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(0)).any() else None,
+        },
+        "Wi-Fi": {
+            "Ada Wi-Fi": float(pd.to_numeric(analysis.loc[wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if wifi_labels.any() else None,
+            "Tanpa Wi-Fi": float(pd.to_numeric(analysis.loc[~wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~wifi_labels).any() else None,
+        },
+        "Kamar mandi": {
+            "KM dalam": float(pd.to_numeric(analysis.loc[bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if bathroom_labels.any() else None,
+            "KM luar/lainnya": float(pd.to_numeric(analysis.loc[~bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~bathroom_labels).any() else None,
+        },
+    }
+
+    distance_columns = [column for column in analysis.columns if column.startswith("jarak_")]
+    distance_corr = {}
+    for column in distance_columns:
+        pair = pd.DataFrame({
+            "harga": pd.to_numeric(analysis["harga_bulanan_norm"], errors="coerce"),
+            "jarak": pd.to_numeric(analysis[column], errors="coerce"),
+        }).dropna()
+        corr = float(pair.corr(method="spearman").iloc[0, 1]) if len(pair) >= 2 else 0.0
+        distance_corr[column] = corr
+
+    q1 = float(prices.quantile(0.25))
+    q3 = float(prices.quantile(0.75))
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    missing = df.isna().sum().sort_values(ascending=False)
+    missing = missing.drop(
+        labels=[column for column in ["rejection_reason"] if column in missing.index],
+        errors="ignore",
+    )
+
+    quality = {
+        "raw_rows": int(len(df)),
+        "accepted_rows": int(len(analysis)),
+        "exact_duplicates": int(df["exact_duplicate"].sum()) if "exact_duplicate" in df else 0,
+        "logical_duplicates": int(df["duplicate_logis"].sum()) if "duplicate_logis" in df else 0,
+        "outliers": int(df["price_anomaly_iqr"].sum()) if "price_anomaly_iqr" in df else 0,
+        "model_ready": int(df["model_ready"].sum()) if "model_ready" in df else 0,
+        "missing": [{"column": str(column), "count": int(count)} for column, count in missing.items() if count > 0],
+    }
+
+    return {
+        "quality": quality,
+        "price_histogram": {
+            "counts": hist_prices[0].tolist(),
+            "edges": hist_prices[1].tolist(),
+            "median": float(prices.median()),
+        },
+        "area_histogram": {
+            "counts": hist_areas[0].tolist(),
+            "edges": hist_areas[1].tolist(),
+            "median": float(areas.median()),
+        },
+        "kecamatan": median_rows("kecamatan"),
+        "kategori_penghuni": median_rows("kategori_penghuni"),
+        "area_scatter": [
+            {"area": float(row["luas_kamar_m2"]), "price": float(row["harga_bulanan_norm"])}
+            for _, row in analysis[[ "luas_kamar_m2", "harga_bulanan_norm"]].dropna().iterrows()
+        ],
+        "facility_groups": facility_groups,
+        "distance_corr": [
+            {"label": column.replace("jarak_", "").replace("_m", "").replace("_", " ").title(), "correlation": corr}
+            for column, corr in sorted(distance_corr.items(), key=lambda item: item[1])
+        ],
+        "outlier": {
+            "prices": prices.tolist(),
+            "lower": lower,
+            "upper": upper,
+        },
+    }
+
+
 def get_full_analytics_payload():
     """Mengambil seluruh data dari SQLite Star Schema + prediksi ML untuk Frontend."""
     bundle = load_model_bundle()
@@ -143,6 +250,7 @@ def get_full_analytics_payload():
 
     # Feature importance dari Random Forest & Gradient Boosting
     rf_model = all_models["Random Forest Regressor (Tuned)"]
+    survey_eda = _build_survey_eda_payload()
 
     return _json_safe({
         "status": "ok",
@@ -153,6 +261,7 @@ def get_full_analytics_payload():
         "metrics": metrics,
         "feature_importance": feature_importance(rf_model),
         "star_schema": tables_info,
+        "survey_eda": survey_eda,
         "records": df.to_dict(orient="records")
     })
 
