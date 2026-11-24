@@ -1,5 +1,27 @@
 # Panduan Workflow GitHub Tim
 
+## Ringkasan status terkini
+
+PR yang sudah menghasilkan pekerjaan terbaru:
+
+- `#49`: dashboard analytics dan ringkasan harga.
+- `#50`: loader model dari registry manifest.
+- `#51`: EDA dan visualisasi kualitas data.
+- `#41`: panduan workflow GitHub.
+
+Urutan sinkronisasi terkini:
+
+```text
+feature branch -> develop -> PR develop -> main
+```
+
+PR [#52](https://github.com/Samuga-14/da-ds-2026-kelompok-10/pull/52)
+menjadi PR sinkronisasi `develop` ke `main`. Karena `main` dan `develop`
+telah berkembang terpisah, PR
+[#53](https://github.com/Samuga-14/da-ds-2026-kelompok-10/pull/53)
+harus direview dan di-merge ke `develop` terlebih dahulu. Setelah itu,
+PR #52 dapat diperbarui menjadi mergeable dan di-merge ke `main`.
+
 Dokumen ini menjelaskan langkah kerja anggota dan PM dari sinkronisasi branch sampai
 perubahan masuk ke `develop` dan `main`.
 
