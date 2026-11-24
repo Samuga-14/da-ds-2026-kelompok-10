@@ -1,0 +1,67 @@
+{
+  "raw_path": "D:\\DASI DALIS\\dasi-dalis-10\\data\\raw\\Survey_Kos.csv",
+  "raw_rows": 928,
+  "raw_columns": 35,
+  "staging_path": "D:\\DASI DALIS\\dasi-dalis-10\\data\\staging\\survey_clean_v1.csv",
+  "staging_rows": 928,
+  "staging_columns": 74,
+  "exact_duplicates": 0,
+  "logical_duplicate_rows": 42,
+  "accepted_for_analysis": 923,
+  "model_ready": 833,
+  "price_anomaly_iqr": 42,
+  "price_iqr_bounds": {
+    "lower": 229687.5,
+    "upper": 1142187.5
+  },
+  "quality_dimensions_before_after": {
+    "completeness": {
+      "raw_missing_cells": 37,
+      "staging_missing_cells": 0
+    },
+    "validity": {
+      "valid_numeric_rows": 924,
+      "active_kos_rows": 926,
+      "accepted_for_analysis": 923
+    },
+    "consistency": {
+      "security_categories": [
+        "CCTV",
+        "Penjaga & CCTV",
+        "Penjaga/Satpam",
+        "Tidak Ada"
+      ],
+      "bathroom_type_categories": [
+        "dalam",
+        "luar"
+      ],
+      "parking_categories": [
+        "Mobil & Motor",
+        "Motor Saja",
+        "Tidak Ada"
+      ],
+      "night_rule_categories": [
+        "Ada Batas Jam Malam",
+        "Bebas 24 Jam"
+      ],
+      "floor_categories": [
+        "1",
+        "2",
+        "3",
+        "4 - 5"
+      ]
+    },
+    "uniqueness": {
+      "exact_duplicates": 0,
+      "logical_duplicate_rows": 42,
+      "unique_rows": 886
+    }
+  },
+  "missing_cells_by_column": {},
+  "rejection_counts": {
+    "": 923,
+    "harga atau luas kamar tidak valid": 3,
+    "harga atau luas kamar tidak valid; kos tidak beroperasi": 1,
+    "kos tidak beroperasi": 1
+  }
+}
