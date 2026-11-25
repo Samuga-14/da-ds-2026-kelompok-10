@@ -29,9 +29,13 @@ import sklearn
 from models.features import FEATURE_COLS, add_derived_features, add_model_features, build_feature_frame
 from services.analytics_service import (
     FACILITY_FILTERS,
+    SIMULATABLE_FACILITIES,
+    classify_fair_price,
     enrich_price_analysis,
     feature_importance,
     get_price_summary,
+    get_storytelling_insights,
+    simulate_facility_upgrades,
 )
 from services.database import connect, connection, ensure_readable_object, validate
 from server_config import (
@@ -42,6 +46,7 @@ from server_config import (
     HOST,
     ADMIN_API_KEY,
     MODEL_PKL_PATH,
+    NORMALIZE_SCRIPT_PATH,
     PORT,
     TRAIN_SCRIPT_PATH,
 )
@@ -64,6 +69,8 @@ def ensure_database():
     """Ensure the SQLite warehouse exists without retraining models implicitly."""
     if not os.path.exists(DB_PATH):
         print("[INIT] Membangun SQLite Star Schema Data Warehouse...")
+        if os.path.exists(NORMALIZE_SCRIPT_PATH):
+            subprocess.run([sys.executable, NORMALIZE_SCRIPT_PATH], check=True, cwd=BASE_DIR)
         subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
 
 
@@ -397,6 +404,7 @@ def get_full_analytics_payload():
     # Feature importance dari Random Forest & Gradient Boosting
     rf_model = all_models["Random Forest Regressor (Tuned)"]
     survey_eda = _build_survey_eda_payload()
+    storytelling = get_storytelling_insights(df)
 
     return _json_safe({
         "status": "ok",
@@ -408,6 +416,7 @@ def get_full_analytics_payload():
         "feature_importance": feature_importance(rf_model),
         "star_schema": tables_info,
         "survey_eda": survey_eda,
+        "storytelling": storytelling,
         "records": df.to_dict(orient="records")
     })
 
@@ -499,6 +508,13 @@ def predict_single_kos(payload):
         }
 
     mae_val = int(metrics[selected_algo]["MAE"])
+    fair_eval = None
+    if "actual_monthly_rp" in payload and payload["actual_monthly_rp"] not in (None, ""):
+        actual_rp = _read_numeric(payload, "actual_monthly_rp", selected_result)
+        fair_eval = classify_fair_price(actual_rp, selected_result)
+
+    simulation = simulate_facility_upgrades(values, all_models[selected_algo])
+
     return {
         "status": "ok" if all(not isinstance(prediction, dict) for prediction in predictions.values()) else "partial",
         "selected_algorithm": selected_algo,
@@ -510,8 +526,53 @@ def predict_single_kos(payload):
         "skor_kelengkapan_fasilitas": skor_fas,
         "indeks_aksesibilitas_lokasi": indeks_aks,
         "best_algorithm": bundle["best_algorithm"],
-        "all_predictions": predictions
+        "all_predictions": predictions,
+        "fair_price_evaluation": fair_eval,
+        "facility_simulation": simulation,
     }
+
+
+def simulate_kos_facilities(payload):
+    """Run counterfactual facility simulation and optional fair-price classification (Issues #22, #28, #33, #39)."""
+    bundle = load_model_bundle()
+    all_models = bundle["all_models"]
+    selected_algo = payload.get("algorithm", bundle["best_algorithm"])
+    if not isinstance(selected_algo, str) or selected_algo not in all_models:
+        raise RequestValidationError("Algoritma tidak dikenal. Pilih salah satu algoritma yang tersedia.")
+
+    binary_defaults = {
+        "km_dalam": 1, "is_ac": 0, "is_wifi": 1, "ada_tv": 0,
+        "ada_meja_belajar": 1, "parkir_mobil": 0, "dapur_pribadi": 0,
+        "dapur_bersama": 1, "keamanan_penjaga": 0, "keamanan_cctv": 1,
+        "bebas_24jam": 1, "listrik_termasuk": 0, "is_tahunan": 0
+    }
+    values = {
+        "luas_kamar_m2": _read_numeric(payload, "luas_kamar_m2", 12),
+        "jumlah_lantai": _read_numeric(payload, "jumlah_lantai", 1, integer=True),
+        **{
+            name: _read_numeric(payload, name, default, binary=True)
+            for name, default in binary_defaults.items()
+        },
+        "jarak_ke_kampus_kantor_sekolah_terdekat_km": _read_numeric(
+            payload, "jarak_ke_kampus_kantor_sekolah_terdekat_km", 0.5
+        ),
+        "jarak_ke_pasar_km": _read_numeric(payload, "jarak_ke_pasar_km", 0.6),
+        "jarak_krusial_km": _read_numeric(payload, "jarak_krusial_km", 0.9),
+        "jarak_ke_jalan_raya_m": _read_numeric(payload, "jarak_ke_jalan_raya_m", 50)
+    }
+
+    upgrades = payload.get("upgrades")
+    if upgrades is not None:
+        if not isinstance(upgrades, list) or any(u not in SIMULATABLE_FACILITIES for u in upgrades):
+            raise RequestValidationError(
+                f"Daftar 'upgrades' tidak valid. Pilihan: {', '.join(SIMULATABLE_FACILITIES)}."
+            )
+
+    sim_result = simulate_facility_upgrades(values, all_models[selected_algo], candidate_upgrades=upgrades)
+    if "actual_monthly_rp" in payload and payload["actual_monthly_rp"] not in (None, ""):
+        actual_rp = _read_numeric(payload, "actual_monthly_rp", sim_result["baseline_monthly_rp"])
+        sim_result["fair_price_evaluation"] = classify_fair_price(actual_rp, sim_result["baseline_monthly_rp"])
+    return sim_result
 
 
 def insert_new_kos_to_dw(payload):
@@ -716,6 +777,21 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
                 self._send_api_exception(exc)
             return
 
+        if path == "/api/storytelling":
+            try:
+                with connection() as conn:
+                    df_s = pd.read_sql_query("SELECT * FROM vw_mart_kos_lengkap", conn)
+                try:
+                    bundle = load_model_bundle()
+                    df_s = add_model_features(df_s)
+                    df_s = enrich_price_analysis(df_s, bundle["all_models"])
+                except Exception:
+                    pass
+                self._send_json(get_storytelling_insights(df_s))
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
         if path == "/api/warehouse":
             qs = parse_qs(parsed.query)
             table_name = qs.get("table", ["fact_sewa_kos"])[0]
@@ -743,7 +819,7 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/predict", "/api/kos", "/api/run-etl"}:
+        if parsed.path not in {"/api/predict", "/api/simulate", "/api/kos", "/api/run-etl"}:
             self._send_json({"status": "error", "message": "Endpoint tidak ditemukan"}, HTTPStatus.NOT_FOUND)
             return
         try:
@@ -773,6 +849,13 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
                 self._send_api_exception(exc)
             return
 
+        if parsed.path == "/api/simulate":
+            try:
+                self._send_json(simulate_kos_facilities(body))
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
         if parsed.path == "/api/kos":
             try:
                 self._send_json(insert_new_kos_to_dw(body))
@@ -782,12 +865,20 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/run-etl":
             try:
+                if os.path.exists(NORMALIZE_SCRIPT_PATH):
+                    subprocess.run([sys.executable, NORMALIZE_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 subprocess.run([sys.executable, TRAIN_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 global MODEL_BUNDLE
                 MODEL_BUNDLE = None
-                load_model_bundle()
-                self._send_json({"status": "ok", "message": "Pipeline ETL & Pelatihan 4 Model Regresi berhasil dijalankan ulang."})
+                bundle = load_model_bundle()
+                records_count = _validate_database()
+                self._send_json({
+                    "status": "ok",
+                    "warehouse_records": records_count,
+                    "best_algorithm": bundle["best_algorithm"],
+                    "message": "Pipeline Normalisasi Survei 928 Baris, ETL Star Schema, & Pelatihan 4 Model Regresi berhasil dijalankan ulang.",
+                })
             except Exception as exc:
                 self._send_api_exception(exc)
             return

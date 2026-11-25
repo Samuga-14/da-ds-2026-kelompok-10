@@ -1,5 +1,6 @@
 """Shared feature engineering for training and model inference."""
 
+import numpy as np
 import pandas as pd
 
 
@@ -14,19 +15,57 @@ FEATURE_COLS = [
 
 
 def add_model_features(df):
-    """Apply the same binary and derived features used by the ETL pipeline."""
+    """Apply the same binary and derived features used by the ETL pipeline (supports both survey and legacy column names)."""
     df = df.copy()
-    df["km_dalam"] = (df["tipe_kamar_mandi"] == "dalam").astype(int)
-    df["is_ac"] = (df["ac_non_ac"] == "ac").astype(int)
-    df["is_wifi"] = (df["wifi_non_wifi"] == "wifi").astype(int)
-    df["parkir_mobil"] = (df["lahan_parkir"] == "mobil & motor").astype(int)
-    df["dapur_pribadi"] = (df["dapur"] == "pribadi").astype(int)
-    df["dapur_bersama"] = (df["dapur"] == "bersama").astype(int)
-    df["keamanan_penjaga"] = (df["keamanan_kos"] == "Penjaga & CCTV").astype(int)
-    df["keamanan_cctv"] = (df["keamanan_kos"] == "CCTV Saja").astype(int)
-    df["bebas_24jam"] = (df["aturan_jam_malam_masuk"] == "Bebas 24 Jam").astype(int)
-    df["listrik_termasuk"] = (df["skema_biaya_listrik"] == "termasuk sewa").astype(int)
-    df["is_tahunan"] = (df["sewa_tahunan_bulanan"] == "tahunan").astype(int)
+    df["km_dalam"] = (df["tipe_kamar_mandi"].astype(str).str.lower() == "dalam").astype(int)
+    if "ac" in df.columns:
+        df["is_ac"] = pd.to_numeric(df["ac"], errors="coerce").fillna(0).astype(int)
+    else:
+        df["is_ac"] = (df["ac_non_ac"].astype(str).str.lower() == "ac").astype(int)
+
+    if "wifi_non_wifi" in df.columns:
+        df["is_wifi"] = (df["wifi_non_wifi"].astype(str).str.lower() == "wifi").astype(int)
+    else:
+        df["is_wifi"] = (df.get("wifi", pd.Series(dtype=str)).astype(str).str.lower() == "ada").astype(int)
+
+    df["parkir_mobil"] = df["lahan_parkir"].astype(str).str.lower().str.contains("mobil", na=False).astype(int)
+
+    if "dapur" in df.columns:
+        df["dapur_pribadi"] = (df["dapur"].astype(str).str.lower() == "pribadi").astype(int)
+        df["dapur_bersama"] = (df["dapur"].astype(str).str.lower() == "bersama").astype(int)
+    else:
+        dapur_col = df.get("fasilitas_dapur", pd.Series(dtype=str)).astype(str).str.lower()
+        df["dapur_pribadi"] = dapur_col.str.contains("pribadi", na=False).astype(int)
+        df["dapur_bersama"] = dapur_col.str.contains("bersama", na=False).astype(int)
+
+    sec_col = df["keamanan_kos"].astype(str).str.lower()
+    df["keamanan_penjaga"] = sec_col.str.contains("penjaga|satpam", na=False).astype(int)
+    df["keamanan_cctv"] = sec_col.isin(["cctv", "cctv saja"]).astype(int)
+
+    night_col = df.get("aturan_jam_malam_masuk", df.get("aturan_jam_malam", pd.Series(dtype=str))).astype(str).str.lower()
+    df["bebas_24jam"] = night_col.str.contains("bebas", na=False).astype(int)
+
+    if "listrik_termasuk" in df.columns:
+        df["listrik_termasuk"] = pd.to_numeric(df["listrik_termasuk"], errors="coerce").fillna(0).astype(int)
+    else:
+        df["listrik_termasuk"] = (df["skema_biaya_listrik"].astype(str).str.lower() == "termasuk sewa").astype(int)
+
+    if "is_tahunan" in df.columns:
+        df["is_tahunan"] = pd.to_numeric(df["is_tahunan"], errors="coerce").fillna(0).astype(int)
+    elif "sewa_tahunan" in df.columns:
+        df["is_tahunan"] = pd.to_numeric(df["sewa_tahunan"], errors="coerce").fillna(0).astype(int)
+    else:
+        df["is_tahunan"] = (df["sewa_tahunan_bulanan"].astype(str).str.lower() == "tahunan").astype(int)
+
+    if "jarak_ke_kampus_kantor_sekolah_terdekat_km" not in df.columns and "jarak_kampus_sekolah_tempatkerja_m" in df.columns:
+        df["jarak_ke_kampus_kantor_sekolah_terdekat_km"] = (df["jarak_kampus_sekolah_tempatkerja_m"] / 1000.0).round(3)
+    if "jarak_ke_pasar_km" not in df.columns and "jarak_pasar_minimarket_m" in df.columns:
+        df["jarak_ke_pasar_km"] = (df["jarak_pasar_minimarket_m"] / 1000.0).round(3)
+    if "jarak_krusial_km" not in df.columns and "jarak_fasilitas_kesehatan_m" in df.columns:
+        df["jarak_krusial_km"] = (df["jarak_fasilitas_kesehatan_m"] / 1000.0).round(3)
+    if "jarak_ke_jalan_raya_m" not in df.columns and "jarak_jalan_raya_m" in df.columns:
+        df["jarak_ke_jalan_raya_m"] = df["jarak_jalan_raya_m"].round(0)
+
     return add_derived_features(df)
 
 
