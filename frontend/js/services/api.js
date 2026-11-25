@@ -33,8 +33,20 @@ const TobaKostApi = {
     return fetch(query ? `/api/summary?${query}` : '/api/summary');
   },
 
+  storytelling() {
+    return fetch('/api/storytelling');
+  },
+
   predict(payload) {
     return fetch('/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  simulate(payload) {
+    return fetch('/api/simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
