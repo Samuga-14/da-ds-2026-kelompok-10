@@ -439,7 +439,7 @@ def normalize_survey(raw_path: Path = RAW_PATH):
         "jarak_jalan_raya_m",
     ]
     for col_m in distance_cols_m:
-        class_col = col_m.replace("jarak_", "klasifikasi_jarak_").replace("_m", "")
+        class_col = re.sub(r"_m$", "", col_m).replace("jarak_", "klasifikasi_jarak_")
         canonical[class_col] = canonical[col_m].map(classify_distance_meters)
 
     # Room floor and room area
