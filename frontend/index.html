@@ -190,6 +190,11 @@
       </div>
       <div class="hidden sm:block text-xs text-slate-500">Status sumber data ditampilkan di panel navigasi</div>
     </div>
+    <div id="apiLoadingNotice" class="api-notice api-notice-loading hidden" role="status" aria-live="polite">
+      <span class="api-spinner" aria-hidden="true"></span>
+      <span>Memeriksa API data terbaru. Dashboard tetap dapat digunakan dengan snapshot lokal.</span>
+    </div>
+    <div id="apiFallbackNotice" class="api-notice hidden" role="alert" aria-live="assertive"></div>
 
     <!-- HALAMAN 1 -->
     <section id="tab1" class="tab-section space-y-6">
@@ -253,6 +258,7 @@
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">Perbandingan Rata-rata vs Median Tarif Sewa Bulanan per Kecamatan</h3>
           <div id="plotKecamatanBar" class="plot-box"></div>
+          <div id="plotKecamatanBarEmpty" class="chart-empty-state hidden" role="status"></div>
         </div>
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">Proporsi Kategori Penghuni Kos (Putra, Putri, Campur)</h3>
@@ -278,6 +284,7 @@
             <tbody></tbody>
           </table>
         </div>
+        <div id="tableRingkasanKecEmpty" class="chart-empty-state hidden" role="status"></div>
       </div>
     </section>
 
@@ -297,11 +304,19 @@
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">Box Plot Distribusi Kuartil & Outlier Tarif per Kecamatan & Kamar Mandi</h3>
           <div id="plotBoxKecamatan" class="plot-box"></div>
+          <div id="plotBoxKecamatanEmpty" class="chart-empty-state hidden" role="status"></div>
         </div>
         <div class="card-dark">
           <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Berdasarkan Ukuran Kamar (m2) & Kategori Penghuni</h3>
           <div id="plotUkuranKamar" class="plot-box"></div>
+          <div id="plotUkuranKamarEmpty" class="chart-empty-state hidden" role="status"></div>
         </div>
+      </div>
+
+      <div class="card-dark">
+        <h3 class="text-base font-semibold text-white mb-2">Distribusi Luas Kamar</h3>
+        <div id="plotDistribusiLuasKamar" class="plot-box"></div>
+        <div id="plotDistribusiLuasKamarEmpty" class="chart-empty-state hidden" role="status"></div>
       </div>
 
       <div class="card-dark">

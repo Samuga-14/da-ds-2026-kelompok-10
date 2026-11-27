@@ -42,9 +42,37 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       const m = mean(arr);
       return Math.sqrt(arr.reduce((acc, v) => acc + Math.pow(v - m, 2), 0) / (arr.length - 1));
     };
+    const positiveFiniteNumber = (value) => {
+      if (value === null || value === undefined || (typeof value !== 'number' && typeof value !== 'string')) return null;
+      if (typeof value === 'string' && !value.trim()) return null;
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : null;
+    };
+
+    function setPlotEmptyState(plotId, emptyId, message) {
+      const plot = document.getElementById(plotId);
+      const emptyState = document.getElementById(emptyId);
+      const isEmpty = Boolean(message);
+      plot.classList.toggle('hidden', isEmpty);
+      emptyState.textContent = message;
+      emptyState.classList.toggle('hidden', !isEmpty);
+      return !isEmpty;
+    }
+
+    function setApiLoading(isLoading) {
+      document.getElementById('apiLoadingNotice').classList.toggle('hidden', !isLoading);
+    }
+
+    function setApiFallbackNotice(status, message) {
+      const notice = document.getElementById('apiFallbackNotice');
+      notice.textContent = message;
+      notice.className = message ? `api-notice api-notice-${status}` : 'api-notice hidden';
+    }
 
     async function syncWithBackendApi() {
       let apiResponded = false;
+      setApiLoading(true);
+      setApiFallbackNotice('', '');
       try {
         const res = await TobaKostApi.analytics();
         apiResponded = true;
@@ -77,17 +105,23 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
           selector.value = bestAlgorithm;
         }
         setDataSourceStatus(`SQLite API · ${ALL_RECORDS.length} sampel`, `SQLite Data Warehouse · ${ALL_RECORDS.length} sampel`, 'API berhasil dimuat dari SQLite Data Warehouse.', 'online');
+        setApiFallbackNotice('', '');
         applyGlobalFilter();
         await runPredictionCalculator();
       } catch (e) {
         const count = ALL_RECORDS.length;
+        const detail = e instanceof Error ? e.message : String(e);
         if (apiResponded) {
-          setDataSourceStatus('API error · snapshot lokal', `Snapshot HTML · ${count} sampel · API merespons`, e.message, 'error');
+          setDataSourceStatus('API error · snapshot lokal', `Snapshot HTML · ${count} sampel · API merespons`, detail, 'error');
+          setApiFallbackNotice('error', `API merespons tetapi data terbaru gagal dimuat (${detail}). Dashboard tetap menggunakan snapshot lokal (${count} sampel).`);
           console.error('API dapat dijangkau tetapi gagal memuat data terbaru.', e);
         } else {
-          setDataSourceStatus('API offline · snapshot lokal', `Snapshot HTML · ${count} sampel · API offline`, e.message, 'offline');
+          setDataSourceStatus('API offline · snapshot lokal', `Snapshot HTML · ${count} sampel · API offline`, detail, 'offline');
+          setApiFallbackNotice('offline', `API tidak dapat dihubungi (${detail}). Dashboard tetap menggunakan snapshot lokal (${count} sampel).`);
           console.warn('API tidak dapat dijangkau; menampilkan snapshot HTML yang tertanam.', e);
         }
+      } finally {
+        setApiLoading(false);
       }
     }
 
@@ -478,7 +512,9 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
 
     function renderTab1() {
       const rows = FILTERED_RECORDS;
-      const prices = rows.map(r => r.harga_bulanan_norm);
+      const validPriceRows = rows.filter(r => positiveFiniteNumber(r.harga_bulanan_norm) !== null);
+      const prices = validPriceRows.map(r => positiveFiniteNumber(r.harga_bulanan_norm));
+      const allPrices = ALL_RECORDS.map(r => positiveFiniteNumber(r.harga_bulanan_norm)).filter(price => price !== null);
       const desaSet = new Set(rows.map(r => r.desa_kelurahan));
       const bulananRows = rows.filter(r => r.sewa_tahunan_bulanan === 'bulanan').map(r => r.harga_sewa);
       const tahunanRows = rows.filter(r => r.sewa_tahunan_bulanan === 'tahunan').map(r => r.harga_sewa);
@@ -500,7 +536,10 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       const setHtml = (id, html) => { document.getElementById(id).innerHTML = html; };
       const kecSet = new Set(rows.map(r => r.kecamatan));
       const acPct = rows.length ? (rows.filter(r => r.ac_non_ac === 'ac').length / rows.length * 100).toFixed(1) : 0;
-      const tahunanNorm = rows.filter(r => r.sewa_tahunan_bulanan === 'tahunan').map(r => r.harga_bulanan_norm);
+      const tahunanNorm = rows
+        .filter(r => r.sewa_tahunan_bulanan === 'tahunan')
+        .map(r => positiveFiniteNumber(r.harga_bulanan_norm))
+        .filter(price => price !== null);
       const sharePct = ALL_RECORDS.length ? (rows.length / ALL_RECORDS.length * 100).toFixed(0) : 0;
 
       // KPI 1: total sampel
@@ -516,7 +555,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         const mu = mean(prices), md = median(prices), dMed = mu - md;
         let chips = chip(tone(dMed), `${arrow(dMed)} ${fmtRp(Math.abs(dMed))} (${fmtPct(md ? dMed / md * 100 : 0)}) ${dMed >= 0 ? 'di atas' : 'di bawah'} median`);
         if (rows.length < ALL_RECORDS.length) {
-          const allMu = mean(ALL_RECORDS.map(r => r.harga_bulanan_norm));
+          const allMu = mean(allPrices);
           const d = allMu ? (mu - allMu) / allMu * 100 : 0;
           chips += ' ' + chip(tone(d), `${arrow(d)} ${fmtPct(d)} vs seluruh data`);
         }
@@ -548,14 +587,20 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       renderInsights(rows);
 
       const kecList = ALL_16_KECAMATAN_TOBA;
-      const activeKecs = kecList.filter(k => rows.some(r => r.kecamatan === k));
-      const meanByKec = activeKecs.map(k => Math.round(mean(rows.filter(r => r.kecamatan === k).map(r => r.harga_bulanan_norm))));
-      const medByKec = activeKecs.map(k => Math.round(median(rows.filter(r => r.kecamatan === k).map(r => r.harga_bulanan_norm))));
+      const activeKecs = kecList.filter(k => validPriceRows.some(r => r.kecamatan === k));
+      const meanByKec = activeKecs.map(k => Math.round(mean(validPriceRows.filter(r => r.kecamatan === k).map(r => positiveFiniteNumber(r.harga_bulanan_norm)))));
+      const medByKec = activeKecs.map(k => Math.round(median(validPriceRows.filter(r => r.kecamatan === k).map(r => positiveFiniteNumber(r.harga_bulanan_norm)))));
 
-      Plotly.react('plotKecamatanBar', [
-        { x: activeKecs, y: meanByKec, name: 'Rata-rata (Mean)', type: 'bar', marker: { color: '#3b82f6' } },
-        { x: activeKecs, y: medByKec, name: 'Nilai Tengah (Median)', type: 'bar', marker: { color: '#10b981' } }
-      ], baseDarkLayout({ barmode: 'group', yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' }, hovermode: 'x unified' }), PLOTLY_CONFIG);
+      if (setPlotEmptyState(
+        'plotKecamatanBar',
+        'plotKecamatanBarEmpty',
+        activeKecs.length ? '' : 'Tidak ada data harga valid untuk ditampilkan pada kecamatan yang sesuai filter.'
+      )) {
+        Plotly.react('plotKecamatanBar', [
+          { x: activeKecs, y: meanByKec, name: 'Rata-rata (Mean)', type: 'bar', marker: { color: '#3b82f6' } },
+          { x: activeKecs, y: medByKec, name: 'Nilai Tengah (Median)', type: 'bar', marker: { color: '#10b981' } }
+        ], baseDarkLayout({ barmode: 'group', yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f', gridcolor: '#e2e8f0' }, hovermode: 'x unified' }), PLOTLY_CONFIG);
+      }
 
       const categories = CATEGORY_META.map(category => ({
         ...category,
@@ -574,9 +619,14 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
       }], baseDarkLayout({ margin: { t: 38, r: 24, b: 38, l: 24 }, showlegend: true, legend: { orientation: 'h', y: -0.08, x: 0.5, xanchor: 'center' } }), PLOTLY_CONFIG);
 
       const tbody = document.querySelector('#tableRingkasanKec tbody');
+      const tableEmptyState = document.getElementById('tableRingkasanKecEmpty');
+      tableEmptyState.textContent = activeKecs.length
+        ? ''
+        : 'Tidak ada data harga valid untuk kecamatan yang sesuai dengan filter saat ini.';
+      tableEmptyState.classList.toggle('hidden', activeKecs.length > 0);
       tbody.innerHTML = activeKecs.map(k => {
-        const sub = rows.filter(r => r.kecamatan === k);
-        const p = sub.map(r => r.harga_bulanan_norm);
+        const sub = validPriceRows.filter(r => r.kecamatan === k);
+        const p = sub.map(r => positiveFiniteNumber(r.harga_bulanan_norm));
         const dCount = new Set(sub.map(r => r.desa_kelurahan)).size;
         return `<tr>
           <td class="font-semibold text-white">${k}</td>
@@ -592,6 +642,7 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
 
     function renderTab2() {
       const rows = FILTERED_RECORDS;
+      const validPriceRows = rows.filter(r => positiveFiniteNumber(r.harga_bulanan_norm) !== null);
       const ids = ['Kabupaten Toba'];
       const labels = ['Kabupaten Toba'];
       const parents = [''];
@@ -645,36 +696,52 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
         hovertemplate: '<b>%{label}</b><br>Jumlah Unit: %{value}<br>Rata-rata Tarif: Rp %{customdata:,.0f}/bln<extra></extra>'
       }], baseDarkLayout({ margin: { t: 10, r: 10, b: 10, l: 10 } }), PLOTLY_CONFIG);
 
-      const kmDalamRows = rows.filter(r => r.tipe_kamar_mandi === 'dalam');
-      const kmLuarRows = rows.filter(r => r.tipe_kamar_mandi === 'luar');
+      const kmDalamRows = validPriceRows.filter(r => r.tipe_kamar_mandi === 'dalam');
+      const kmLuarRows = validPriceRows.filter(r => r.tipe_kamar_mandi === 'luar');
       const boxTraces = [
         kmDalamRows.length ? {
           x: kmDalamRows.map(r => r.kecamatan),
-          y: kmDalamRows.map(r => r.harga_bulanan_norm),
+          y: kmDalamRows.map(r => positiveFiniteNumber(r.harga_bulanan_norm)),
           name: 'KM Dalam',
           type: 'box',
           marker: { color: '#3b82f6' }
         } : null,
         kmLuarRows.length ? {
           x: kmLuarRows.map(r => r.kecamatan),
-          y: kmLuarRows.map(r => r.harga_bulanan_norm),
+          y: kmLuarRows.map(r => positiveFiniteNumber(r.harga_bulanan_norm)),
           name: 'KM Luar',
           type: 'box',
           marker: { color: '#10b981' }
         } : null
       ].filter(Boolean);
-      Plotly.react('plotBoxKecamatan', boxTraces, baseDarkLayout({ boxmode: 'group', yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' }, hovermode: 'closest' }), PLOTLY_CONFIG);
+      if (setPlotEmptyState(
+        'plotBoxKecamatan',
+        'plotBoxKecamatanEmpty',
+        boxTraces.length
+          ? ''
+          : validPriceRows.length
+            ? 'Data harga valid tersedia, tetapi tidak ada kelompok kamar mandi yang dapat ditampilkan untuk filter ini.'
+            : 'Tidak ada data harga valid yang memenuhi kriteria filter untuk box plot.'
+      )) {
+        Plotly.react('plotBoxKecamatan', boxTraces, baseDarkLayout({ boxmode: 'group', yaxis: { title: 'Tarif Bulanan (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' }, hovermode: 'closest' }), PLOTLY_CONFIG);
+      }
 
-      const sizes = [...new Set(rows.map(r => Number(r.luas_kamar_m2)).filter(size => Number.isFinite(size) && size > 0))].sort((a, b) => a - b);
+      const validAreaRows = rows
+        .map(row => ({ row, size: positiveFiniteNumber(row.luas_kamar_m2) }))
+        .filter(item => item.size !== null);
+      const validAreaPriceRows = validAreaRows.filter(item => positiveFiniteNumber(item.row.harga_bulanan_norm) !== null);
+      const sizes = [...new Set(validAreaRows.map(item => item.size))].sort((a, b) => a - b);
       const sizeTraces = CATEGORY_META.map(category => {
         const groups = sizes.map(size => {
-          const groupRows = rows.filter(r => Number(r.luas_kamar_m2) === size && normalizeCategory(r.kategori_penghuni) === category.key);
+          const groupRows = validAreaPriceRows
+            .filter(item => item.size === size && normalizeCategory(item.row.kategori_penghuni) === category.key)
+            .map(item => item.row);
           return { size, rows: groupRows };
         }).filter(group => group.rows.length > 0);
         if (!groups.length) return null;
         return {
           x: groups.map(group => `${group.size} m²`),
-          y: groups.map(group => Math.round(mean(group.rows.map(r => r.harga_bulanan_norm)))),
+          y: groups.map(group => Math.round(mean(group.rows.map(r => positiveFiniteNumber(r.harga_bulanan_norm))))),
           customdata: groups.map(group => group.rows.length),
           name: category.label,
           type: 'bar',
@@ -682,12 +749,47 @@ let APP_PAYLOAD = {"status": "ok", "architecture": "Paket A: Python REST API + S
           hovertemplate: '<b>%{x}</b><br>Kategori: ' + category.label + '<br>Rata-rata tarif: Rp %{y:,.0f}/bln<br>Jumlah sampel: %{customdata}<extra></extra>'
         };
       }).filter(Boolean);
-      Plotly.react('plotUkuranKamar', sizeTraces, baseDarkLayout({
-        barmode: 'group',
-        yaxis: { title: 'Rata-rata Tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
-        xaxis: { title: 'Luas kamar' },
-        hovermode: 'closest'
-      }), PLOTLY_CONFIG);
+      if (setPlotEmptyState(
+        'plotUkuranKamar',
+        'plotUkuranKamarEmpty',
+        sizeTraces.length
+          ? ''
+          : validAreaRows.length
+            ? 'Data luas kamar tersedia, tetapi tidak ada data tarif dan kategori penghuni valid untuk filter ini.'
+            : 'Tidak ada data luas kamar valid yang memenuhi kriteria filter.'
+      )) {
+        Plotly.react('plotUkuranKamar', sizeTraces, baseDarkLayout({
+          barmode: 'group',
+          yaxis: { title: 'Rata-rata Tarif (Rp)', tickprefix: 'Rp ', tickformat: ',.0f' },
+          xaxis: { title: 'Luas kamar' },
+          hovermode: 'closest'
+        }), PLOTLY_CONFIG);
+      }
+
+      const sizeCounts = new Map();
+      validAreaRows.forEach(({ size }) => {
+        const lowerBound = Math.floor(size / 5) * 5;
+        sizeCounts.set(lowerBound, (sizeCounts.get(lowerBound) || 0) + 1);
+      });
+      const sizeBins = [...sizeCounts.entries()].sort((a, b) => a[0] - b[0]);
+      if (setPlotEmptyState(
+        'plotDistribusiLuasKamar',
+        'plotDistribusiLuasKamarEmpty',
+        sizeBins.length ? '' : 'Tidak ada luas kamar valid (angka positif) yang memenuhi kriteria filter.'
+      )) {
+        Plotly.react('plotDistribusiLuasKamar', [{
+          x: sizeBins.map(([lowerBound]) => `${lowerBound}–<${lowerBound + 5} m²`),
+          y: sizeBins.map(([, count]) => count),
+          type: 'bar',
+          name: 'Jumlah kamar',
+          marker: { color: '#0f766e' },
+          hovertemplate: '<b>%{x}</b><br>Jumlah observasi: %{y} kamar<extra></extra>'
+        }], baseDarkLayout({
+          xaxis: { title: 'Luas kamar (m²)' },
+          yaxis: { title: 'Jumlah observasi kamar', rangemode: 'tozero' },
+          hovermode: 'closest'
+        }), PLOTLY_CONFIG);
+      }
 
       const years = ['2023 atau sebelumnya', '2024', '2025', '2026'];
       const bulByYr = years.map(y => Math.round(mean(rows.filter(r => String(r.tahun_mulai_sewa) === y && r.sewa_tahunan_bulanan === 'bulanan').map(r => r.harga_bulanan_norm))));

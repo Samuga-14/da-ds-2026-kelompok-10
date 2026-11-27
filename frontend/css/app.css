@@ -65,6 +65,16 @@
     .leaflet-tooltip.wilayah-label::before { display: none; }
     .plot-box { width: 100%; min-height: 340px; }
     .js-plotly-plot { min-width: 0; }
+    .api-notice { display: flex; align-items: flex-start; gap: .75rem; padding: 12px 14px; border: 1px solid; border-radius: 10px; font-size: .86rem; line-height: 1.5; }
+    .api-notice > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+    .api-notice.hidden, .chart-empty-state.hidden, .plot-box.hidden { display: none; }
+    .api-notice-loading { color: #1e40af; background: #eff6ff; border-color: #bfdbfe; }
+    .api-notice-error { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+    .api-notice-offline { color: #854d0e; background: #fffbeb; border-color: #fde68a; }
+    .api-spinner { width: 1rem; height: 1rem; flex: 0 0 auto; margin-top: .15rem; border: 2px solid #bfdbfe; border-top-color: #2563eb; border-radius: 50%; animation: api-spin .8s linear infinite; }
+    @keyframes api-spin { to { transform: rotate(360deg); } }
+    .chart-empty-state { display: flex; align-items: center; justify-content: center; min-height: 5rem; margin-top: .5rem; padding: 1rem; border: 1px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; color: #475569; font-size: .86rem; line-height: 1.5; text-align: center; }
+    @media (prefers-reduced-motion: reduce) { .api-spinner { animation: none; border-color: #2563eb; } }
     @media (max-width: 900px) {
       .app-sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px, 86vw); min-width: 0; transform: translateX(-105%); box-shadow: 14px 0 40px rgb(15 23 42 / 12%); }
       .mobile-sidebar-open .app-sidebar { transform: translateX(0); }
