@@ -1,28 +1,36 @@
 {
-  "raw_path": "D:\\DASI DALIS\\dasi-dalis-10\\data\\raw\\Survey_Kos.csv",
-  "raw_rows": 928,
+  "raw_path": "D:\\DASI DALIS\\dasi-dalis-10\\data\\raw\\Survey_Kos_Fix.csv",
+  "raw_rows": 569,
   "raw_columns": 35,
   "staging_path": "D:\\DASI DALIS\\dasi-dalis-10\\data\\staging\\survey_clean_v1.csv",
-  "staging_rows": 928,
+  "staging_rows": 569,
   "staging_columns": 74,
   "exact_duplicates": 0,
-  "logical_duplicate_rows": 42,
-  "accepted_for_analysis": 923,
-  "model_ready": 833,
-  "price_anomaly_iqr": 42,
+  "logical_duplicate_rows": 39,
+  "accepted_for_analysis": 556,
+  "model_ready": 485,
+  "price_anomaly_iqr": 28,
   "price_iqr_bounds": {
-    "lower": 229687.5,
-    "upper": 1142187.5
+    "lower": 175000.0,
+    "upper": 1175000.0
+  },
+  "logical_cleaning_actions": {
+    "imputed_zero_external_distances": 13,
+    "resolved_contradictory_kamar_kosong": 3,
+    "resolved_dual_kloset_duduk_jongkok": 5,
+    "rejected_non_kos_rows": 1,
+    "rejected_unlogical_price_rows": 6,
+    "rejected_unlogical_area_rows": 7
   },
   "quality_dimensions_before_after": {
     "completeness": {
-      "raw_missing_cells": 37,
+      "raw_missing_cells": 50,
       "staging_missing_cells": 0
     },
     "validity": {
-      "valid_numeric_rows": 924,
-      "active_kos_rows": 926,
-      "accepted_for_analysis": 923
+      "valid_numeric_rows": 557,
+      "active_kos_rows": 567,
+      "accepted_for_analysis": 556
     },
     "consistency": {
       "security_categories": [
@@ -53,15 +61,17 @@
     },
     "uniqueness": {
       "exact_duplicates": 0,
-      "logical_duplicate_rows": 42,
-      "unique_rows": 886
+      "logical_duplicate_rows": 39,
+      "unique_rows": 530
     }
   },
   "missing_cells_by_column": {},
   "rejection_counts": {
-    "": 923,
-    "harga atau luas kamar tidak valid": 3,
-    "harga atau luas kamar tidak valid; kos tidak beroperasi": 1,
+    "": 556,
+    "luas kamar tidak logis (< 4 m2 atau > 36 m2)": 6,
+    "harga bulanan tidak logis (< Rp150rb atau > Rp5jt)": 4,
+    "bukan entitas kos (rumah keluarga); harga bulanan tidak logis (< Rp150rb atau > Rp5jt)": 1,
+    "harga bulanan tidak logis (< Rp150rb atau > Rp5jt); luas kamar tidak logis (< 4 m2 atau > 36 m2); kos tidak beroperasi": 1,
     "kos tidak beroperasi": 1
   }
 }
