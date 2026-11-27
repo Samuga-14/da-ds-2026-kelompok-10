@@ -28,7 +28,7 @@
       <nav class="space-y-1" id="navMenu" aria-label="Navigasi dashboard">        <div class="nav-group-label">Visualisasi</div>
         <button class="sidebar-btn active" onclick="switchTab('tab1', this)" title="Ringkasan tarif dan hunian"><span class="nav-icon">1</span><span class="nav-label">Ringkasan tarif & hunian</span></button>
         <button class="sidebar-btn" onclick="switchTab('tab2', this)" title="Distribusi harga sewa"><span class="nav-icon">2</span><span class="nav-label">Distribusi harga sewa</span></button>
-        <button class="sidebar-btn" onclick="switchTab('tab3', this)" title="Fasilitas dan keamanan"><span class="nav-icon">3</span><span class="nav-label">Fasilitas & keamanan</span></button>
+        <button class="sidebar-btn" onclick="switchTab('tab3', this)" title="Faktor yang memengaruhi harga kos"><span class="nav-icon">3</span><span class="nav-label">Faktor harga kos</span></button>
         <button class="sidebar-btn" onclick="switchTab('tab4', this)" title="Peta dan aksesibilitas"><span class="nav-icon">4</span><span class="nav-label">Peta & aksesibilitas</span></button>
         <button class="sidebar-btn" onclick="switchTab('tab5', this)" title="Pencarian kos dan perbandingan"><span class="nav-icon">5</span><span class="nav-label">Pencarian kos</span></button>
         <div class="nav-group-label">Insight</div>
@@ -47,23 +47,7 @@
         <div>
           <label class="text-xs text-slate-300 block mb-1">Kecamatan Kabupaten Toba</label>
           <select id="filterKecamatan" class="input-dark" onchange="applyGlobalFilter()">
-            <option value="ALL">Semua Kecamatan (16 Kecamatan)</option>
-            <option value="Ajibata">Ajibata</option>
-            <option value="Balige">Balige</option>
-            <option value="Bonatua Lunasi">Bonatua Lunasi</option>
-            <option value="Borbor">Borbor</option>
-            <option value="Habinsaran">Habinsaran</option>
-            <option value="Laguboti">Laguboti</option>
-            <option value="Lumban Julu">Lumban Julu</option>
-            <option value="Nassau">Nassau</option>
-            <option value="Parmaksian">Parmaksian</option>
-            <option value="Pintu Pohan Meranti">Pintu Pohan Meranti</option>
-            <option value="Porsea">Porsea</option>
-            <option value="Siantar Narumonda">Siantar Narumonda</option>
-            <option value="Sigumpar">Sigumpar</option>
-            <option value="Silaen">Silaen</option>
-            <option value="Tampahan">Tampahan</option>
-            <option value="Uluan">Uluan</option>
+            <option value="ALL">Semua Kecamatan</option>
           </select>
         </div>
         <div>
@@ -89,6 +73,16 @@
             <option value="ALL">Semua Periode (Bulanan & Tahunan)</option>
             <option value="bulanan">Bulanan</option>
             <option value="tahunan">Tahunan</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-300 block mb-1">Tahun Mulai Sewa</label>
+          <select id="filterTahun" class="input-dark" onchange="applyGlobalFilter()">
+            <option value="ALL">Semua Tahun</option>
+            <option value="2023 atau sebelumnya">2023 atau sebelumnya</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+            <option value="2026">2026</option>
           </select>
         </div>
         <div class="grid grid-cols-2 gap-2">
@@ -265,11 +259,11 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Perbandingan Rata-rata vs Median Tarif Sewa Bulanan per Kecamatan</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Rata-rata dan Median Tarif per Kecamatan</h3>
           <div id="plotKecamatanBar" class="plot-box"></div>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Proporsi Kategori Penghuni Kos (Putra, Putri, Campur)</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Median Tarif Berdasarkan Fasilitas Utama</h3>
           <div id="plotKategoriDonut" class="plot-box"></div>
         </div>
       </div>
@@ -298,58 +292,103 @@
     <!-- HALAMAN 2 -->
     <section id="tab2" class="tab-section hidden space-y-6">
       <div>
-        <h2 class="text-2xl font-bold text-white">Analisis Distribusi & Hierarki Harga Sewa Kos (Treemap Drill-Down, Box Plot Kuantil, Ukuran Kamar, & Tahun)</h2>
-        <p class="text-sm text-slate-400 mt-1">Menggunakan visualisasi interaktif Plotly: klik kotak Kecamatan pada Treemap untuk memperbesar (drill-down) hingga level Desa/Kelurahan.</p>
+        <h2 class="text-2xl font-bold text-white">Analisis Faktor yang Memengaruhi Tarif Kos</h2>
+        <p class="text-sm text-slate-400 mt-1">Visualisasi difokuskan pada lokasi, luas kamar, lantai, tipe kamar mandi, dan fasilitas yang dapat digunakan sebagai variabel prediksi.</p>
       </div>
 
       <div class="card-dark">
-        <h3 class="text-base font-semibold text-white mb-2">Treemap Hierarki Wilayah: Kabupaten Toba â†’ Kecamatan â†’ Desa/Kelurahan (Klik Kotak untuk Drill-Down)</h3>
+        <h3 class="text-base font-semibold text-white mb-2">Treemap Hierarki Wilayah: Kabupaten Toba â†’ Kecamatan â†’ Desa/Kelurahan</h3>
+        <p class="text-xs text-slate-400 mb-2">Warna terang menunjukkan tarif rata-rata lebih rendah; warna gelap menunjukkan tarif rata-rata lebih tinggi. Klik area untuk drill-down.</p>
         <div id="plotTreemapWilayah" style="width:100%; height:420px;"></div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Box Plot Distribusi Kuartil & Outlier Tarif per Kecamatan & Kamar Mandi</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Box Plot Distribusi Tarif per Kecamatan & Tipe Kamar Mandi</h3>
           <div id="plotBoxKecamatan" class="plot-box"></div>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Berdasarkan Ukuran Kamar (m2) & Kategori Penghuni</h3>
+          <h3 class="text-base font-semibold text-white mb-2">Scatter Plot Luas Kamar vs Tarif Bulanan</h3>
           <div id="plotUkuranKamar" class="plot-box"></div>
         </div>
       </div>
 
       <div class="card-dark">
-        <h3 class="text-base font-semibold text-white mb-2">Tren Kenaikan Tarif Sewa Berdasarkan Tahun Mulai Menyewa (2023 - 2026)</h3>
-        <div id="plotTahunSewa" style="width:100%; height:320px;"></div>
+        <h3 class="text-base font-semibold text-white mb-2">Median Tarif Berdasarkan Jumlah Lantai</h3>
+        <p class="text-xs text-slate-400 mb-2">Menunjukkan pola hubungan jumlah lantai bangunan kos terhadap tarif.</p>
+        <div id="plotTipeTarif" style="width:100%; height:320px;"></div>
       </div>
     </section>
 
     <!-- HALAMAN 3 -->
     <section id="tab3" class="tab-section hidden space-y-6">
       <div>
-        <h2 class="text-2xl font-bold text-white">Analisis Hubungan Kelengkapan Fasilitas Kamar, Sanitasi, Sumber Air, & Keamanan terhadap Tarif</h2>
-        <p class="text-sm text-slate-400 mt-1">Mengukur nilai tambah finansial dari paket furnitur kamar, kelengkapan kamar mandi, sumber air utama, fasilitas cuci, dan sistem keamanan.</p>
+        <h2 class="text-2xl font-bold text-white">EDA & Kualitas Data Survei Kos Toba</h2>
+        <p class="text-sm text-slate-400 mt-1">Eksplorasi tarif, lokasi, luas kamar, fasilitas, jarak, outlier, missing value, dan kesiapan data model.</p>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Rata-rata Tarif Sewa Berdasarkan Paket Furnitur Kamar & AC</h3>
+          <h3 class="text-base font-semibold text-white mb-2">1. Distribusi Harga Bulanan Normalisasi</h3>
+          <div id="plotPriceDistribution" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik menunjukkan rentang tarif yang paling banyak muncul. Median digunakan sebagai tarif tipikal karena lebih tahan terhadap harga ekstrem.</p>
+        </div>
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">2. Distribusi Luas Kamar</h3>
+          <div id="plotAreaDistribution" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik menunjukkan ukuran kamar yang paling umum dan membantu membaca apakah variasi luas dapat menjelaskan variasi tarif.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">3. Harga Berdasarkan Kecamatan dan Kategori Penghuni</h3>
+          <div id="plotCategoryPrice" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: median tarif dibandingkan antar kecamatan dan kategori putra, putri, serta campur. Perbedaan ini bersifat deskriptif dan juga dapat dipengaruhi fasilitas serta luas kamar.</p>
+        </div>
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">4. Luas Kamar dan Tarif Bulanan</h3>
           <div id="plotFurnitur" class="plot-box"></div>
-        </div>
-        <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Kurva Kenaikan Tarif terhadap Skor Kelengkapan Fasilitas (0 - 10)</h3>
-          <div id="plotSkorFasilitasLine" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: titik yang cenderung naik ke kanan menunjukkan kamar lebih luas cenderung memiliki tarif lebih tinggi, tetapi pola tetap perlu dibaca bersama fasilitas dan lokasi.</p>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Dampak Sumber Air Utama & Tipe Kamar Mandi terhadap Tarif</h3>
-          <div id="plotSumberAir" class="plot-box"></div>
+          <h3 class="text-base font-semibold text-white mb-2">5. Median Tarif per Jumlah Lantai</h3>
+          <div id="plotSkorFasilitasLine" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: grafik membandingkan tarif tipikal berdasarkan jumlah lantai. Kelompok dengan sedikit unit harus dianggap sebagai indikasi awal.</p>
         </div>
         <div class="card-dark">
-          <h3 class="text-base font-semibold text-white mb-2">Dampak Sistem Keamanan Kos & Aturan Jam Malam</h3>
+          <h3 class="text-base font-semibold text-white mb-2">6. Hubungan Fasilitas dengan Harga</h3>
+          <div id="plotSumberAir" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: median tarif dengan AC, Wi-Fi, atau kamar mandi dalam dibandingkan dengan kondisi tanpa fasilitas tersebut.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">7. Hubungan Jarak Fasilitas dengan Harga</h3>
           <div id="plotKeamanan" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: sebaran titik memperlihatkan apakah jarak ke kampus atau kantor berkaitan dengan tarif. Hubungan ini bukan bukti sebab-akibat.</p>
+        </div>
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">8. Skor Kelengkapan Fasilitas dan Tarif</h3>
+          <div id="plotFasilitasTarif" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: skor yang lebih tinggi berarti fasilitas lebih lengkap. Pola naik menunjukkan kecenderungan tarif meningkat bersama kelengkapan fasilitas.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">9. Korelasi Jarak terhadap Tarif</h3>
+          <div id="plotJarakTarif" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: korelasi negatif berarti lokasi yang lebih dekat cenderung bertarif lebih tinggi. Nilai mendekati nol berarti hubungan monoton lemah.</p>
+        </div>
+        <div class="card-dark">
+          <h3 class="text-base font-semibold text-white mb-2">10. Missing, Outlier, dan Status Data</h3>
+          <div id="plotDataQuality" class="plot-box"></div>
+          <p class="text-xs text-slate-400 mt-2">Interpretasi: missing menunjukkan kolom yang belum lengkap, outlier adalah kandidat berdasarkan IQR, dan status menunjukkan jumlah data yang siap dianalisis atau digunakan model.</p>
         </div>
       </div>
     </section>
@@ -358,7 +397,7 @@
     <section id="tab4" class="tab-section hidden space-y-6">
             <div>
         <h2 class="text-2xl font-bold text-white">Pemetaan Geospasial Choropleth & Analisis Korelasi Aksesibilitas Jarak</h2>
-        <p class="text-sm text-slate-400 mt-1">Peta Choropleth zona tarif sewa kos lintas Kecamatan & Desa/Kelurahan di Kabupaten Toba, Heatmap Korelasi Pearson (8x8), dan Bubble Scatter Plot.</p>
+        <p class="text-sm text-slate-400 mt-1">Peta menunjukkan lokasi dan nilai tarif per zona; warna terang berarti rendah dan warna gelap berarti tinggi. Scatter plot digunakan untuk melihat variasi jarak, luas, dan tarif.</p>
       </div>
 
       <div class="card-dark">
@@ -385,7 +424,6 @@
                 <option value="skor">Rata-rata Skor Fasilitas</option>
                 <option value="aks">Rata-rata Indeks Aksesibilitas</option>
                 <option value="jarak">Rata-rata Jarak ke Kampus/Kantor (km)</option>
-                <option value="unit">Jumlah Unit Kos</option>
               </select>
             </div>
           </div>
@@ -441,6 +479,21 @@
       </div>
 
       <div class="card-dark">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h3 class="text-base font-semibold text-white mb-1">Tipe Jenis Kos</h3>
+            <p class="text-xs text-slate-400">Eksekutif = wajib AC, Wi-Fi, kamar mandi dalam, dan tarif di atas median data terfilter. Selain itu dikategorikan ekonomi.</p>
+          </div>
+          <div id="kostTypeFilter" class="kost-type-filter" role="group" aria-label="Filter tipe kos">
+            <button type="button" class="kost-type-btn active" data-kost-type="ALL" onclick="setKostTypeFilter('ALL')">Semua tipe</button>
+            <button type="button" class="kost-type-btn" data-kost-type="ekonomi" onclick="setKostTypeFilter('ekonomi')">Ekonomi</button>
+            <button type="button" class="kost-type-btn" data-kost-type="eksekutif" onclick="setKostTypeFilter('eksekutif')">Eksekutif</button>
+          </div>
+        </div>
+        <div id="kostTypeSummary" class="kost-type-summary mt-4"></div>
+      </div>
+
+      <div class="card-dark">
         <div class="flex justify-between items-center mb-3">
           <h3 class="text-base font-semibold text-white">Hasil Rekomendasi Kos Terbaik (Diurutkan dari Paling Hemat / Underpriced)</h3>
           <span id="finderResultCount" class="text-xs font-semibold text-emerald-400"></span>
@@ -452,6 +505,7 @@
                 <th>ID</th>
                 <th>Nama Kos</th>
                 <th>Kecamatan / Desa</th>
+                <th>Tipe Kos</th>
                 <th>Kategori</th>
                 <th>Jenis Kos</th>
                 <th>Luas</th>
@@ -536,7 +590,7 @@
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-300 block mb-1">Luas Kamar (m2)</label>
+            <label class="text-xs text-slate-300 block mb-1">Luas Kamar (m)</label>
             <input type="number" id="predLuas" value="12" min="6" max="36" class="input-dark" oninput="runPredictionCalculator()" />
           </div>
           <div>

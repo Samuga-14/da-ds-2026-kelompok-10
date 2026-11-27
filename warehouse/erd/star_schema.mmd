@@ -3,12 +3,51 @@ erDiagram
     DIM_SPESIFIKASI_KAMAR ||--o{ FACT_SEWA_KOS : describes
     DIM_FASILITAS_ATURAN ||--o{ FACT_SEWA_KOS : governs
     DIM_KONTRAK_SEWA ||--o{ FACT_SEWA_KOS : prices
+    DIM_LOKASI {
+        string id_lokasi PK
+        string kecamatan
+        string desa_kelurahan
+        string tujuan_utama
+        string area_tempat_makan
+    }
+    DIM_SPESIFIKASI_KAMAR {
+        string id_spesifikasi PK
+        float luas_kamar_m2
+        float jumlah_lantai
+        string kategori_lantai
+        string tipe_kamar_mandi
+        integer ac
+        string jenis_kos
+    }
+    DIM_FASILITAS_ATURAN {
+        string id_aturan PK
+        string kategori_penghuni
+        string status_penyewa
+        string keamanan_kos
+        string lahan_parkir
+        string aturan_jam_malam
+        string wifi
+        integer listrik_termasuk
+    }
+    DIM_KONTRAK_SEWA {
+        string id_kontrak PK
+        string periode_sewa
+        integer sewa_tahunan
+        integer faktor_konversi_bulanan
+    }
     FACT_SEWA_KOS {
         string id_kost PK
         string id_lokasi FK
         string id_spesifikasi FK
         string id_aturan FK
         string id_kontrak FK
-        integer harga_bulanan_norm
+        float harga_sewa
+        float harga_bulanan_norm
+        float jarak_kampus_sekolah_tempatkerja_m
+        float jarak_jalan_raya_m
+        string klasifikasi_jarak_kampus_sekolah_tempatkerja
+        float skor_kelengkapan_fasilitas
         float indeks_aksesibilitas_lokasi
+        integer accepted_for_analysis
+        integer model_ready
     }

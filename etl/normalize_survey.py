@@ -1,8 +1,32 @@
 """
-Normalize the 328-row Toba kos survey without changing the raw CSV.
+Normalize the Toba kos survey dataset (`data/raw/Survey_Kos.csv`, 928 rows)
+without modifying the raw CSV file.
 
-The script creates a staging CSV and a JSON quality report. It does not silently
-drop outliers or logical duplicates.
+Key preprocessing steps:
+1. Room area (`luas_kamar_m2`): evaluates dimension expressions (e.g. `4x4` -> 16.0,
+   `3,5x5` -> 17.5) and corrects obvious extra-zero typos (`2000` -> `200`).
+2. Distances (in meters `_m`, plus derived `_km` and categorical classification
+   `klasifikasi_jarak_*`): extracts destination category (`Kampus IT Del`, `Kantor`,
+   `Sekolah`, etc.), converts `km` inputs to meters (`1,5 km` -> `1500`), fixes
+   single-digit kilometer entries (`1`–`5` -> `1000`–`5000` m), and corrects extreme
+   typo `300010` -> `3000` m.
+3. Room floor (`jumlah_lantai` & `kategori_lantai`): maps `'bawah tanah'` -> `1`,
+   caps floors `> 5` (e.g. `9`) to numeric `4` with label `'4 - 5'`.
+4. Rent price (`harga_sewa` & `harga_bulanan_norm`): strips thousand separators
+   (`100.000` -> `100000`), scales shorthand entries (`7` Per Tahun -> `7000000`,
+   `250`/`500`/`700`/`900` -> `250000`–`900000`, `10000`/`60000` -> `100000`/`600000`),
+   and normalizes annual rent to monthly equivalent (`/ 12`).
+5. Extra cost (`biaya_tambahan_rp`): parses `rb`/`ribu` suffixes (`100rb` -> `100000`),
+   maps non-numeric placeholders (`Tidak ada`, `-`, `Kosong`) to `0`, and enforces `0`
+   when `ada_biaya_tambahan == 'Tidak'`.
+6. Categorical standardization:
+   - `keamanan_kos`: `'CCTV Saja'` & `'CCTV'` -> `'CCTV'`, `'Penjaga/Satpam'` -> `'Penjaga/Satpam'`,
+     `'Penjaga & CCTV'` -> `'Penjaga & CCTV'`, `'Tidak Ada'` -> `'Tidak Ada'`.
+   - `tipe_kamar_mandi`: `'Dalam'` / `'Kamar mandi dalam'` -> `'dalam'`, `'Luar'` / `'Kamar mandi luar'` -> `'luar'`.
+   - `lahan_parkir`: `'Mobil'` / `'Mobil, Motor'` / `'Mobil & Motor'` -> `'Mobil & Motor'`,
+     `'Motor'` / `'Motor Saja'` -> `'Motor Saja'`, `'Tidak Ada'` -> `'Tidak Ada'`.
+   - `aturan_jam_malam`: `'Ada Batas Jam Tertentu'` -> `'Ada Batas Jam Malam'`.
+   - `status_penyewa`: `'Siswa'`, `'siswa sma'`, `'Pelajar SMA'`, `'Siswa/Pelajar'` -> `'Pelajar'`.
 """
 
 from __future__ import annotations
@@ -16,26 +40,38 @@ import pandas as pd
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-RAW_PATH = BASE_DIR / "data" / "raw" / "data_fix.csv"
+DEFAULT_RAW_PATH = BASE_DIR / "data" / "raw" / "Survey_Kos.csv"
+FALLBACK_RAW_PATH = BASE_DIR / "data" / "raw" / "data_fix.csv"
+RAW_PATH = DEFAULT_RAW_PATH if DEFAULT_RAW_PATH.exists() else FALLBACK_RAW_PATH
 STAGING_DIR = BASE_DIR / "data" / "staging"
 REPORT_DIR = BASE_DIR / "data" / "quality"
 STAGING_PATH = STAGING_DIR / "survey_clean_v1.csv"
 REPORT_PATH = REPORT_DIR / "survey_quality_v1.json"
 
 
-def find_column(df: pd.DataFrame, *phrases: str) -> str:
+def find_column(df: pd.DataFrame, *phrases: str, required: bool = True) -> str | None:
     for column in df.columns:
         normalized = " ".join(str(column).lower().split())
         if all(phrase.lower() in normalized for phrase in phrases):
             return column
-    raise KeyError(f"Kolom tidak ditemukan: {phrases}")
+    if required:
+        raise KeyError(f"Kolom tidak ditemukan: {phrases}")
+    return None
 
 
-def numeric_value(value):
+def text_value(value) -> str:
+    if pd.isna(value):
+        return ""
+    return " ".join(str(value).strip().split())
+
+
+def numeric_value(value) -> float:
+    """Parse common Indonesian survey numeric formats (e.g. '40.000', '550000', '1,5')."""
     if pd.isna(value):
         return np.nan
-    text = str(value).strip()
-    text = text.replace(" ", "")
+    text = str(value).strip().replace(" ", "")
+    if not text:
+        return np.nan
     match = re.search(r"-?\d+(?:[.,]\d+)*", text)
     if not match:
         return np.nan
@@ -44,22 +80,265 @@ def numeric_value(value):
     if "," in number and "." in number:
         number = number.replace(".", "").replace(",", ".")
     elif "," in number:
-        number = number.replace(".", "")
-        number = number.replace(",", ".")
-    elif re.search(r"\.\d{3}$", number):
+        if re.search(r",\d{3}$", number):
+            number = number.replace(",", "")
+        else:
+            number = number.replace(".", "").replace(",", ".")
+    elif re.search(r"\.\d{3}(?:\.\d{3})*$", number):
         number = number.replace(".", "")
     return float(number)
 
 
-def text_value(value):
+def parse_room_area(value) -> float:
+    """Parse room area in m2, supporting multiplication dimensions (`4x3`, `3,5x5`) and typo correction (`2000` -> `200`)."""
     if pd.isna(value):
-        return ""
-    return " ".join(str(value).strip().split())
+        return np.nan
+    text = str(value).strip().lower()
+    if not text:
+        return np.nan
+
+    # Detect multiplication pattern: e.g. '4x4', '3,5x5', '4m x 4m', '3 × 4'
+    mult_match = re.search(
+        r"(\d+(?:[.,]\d+)?)\s*(?:m2|m²|meter|m)?\s*[x×*]\s*(\d+(?:[.,]\d+)?)",
+        text,
+    )
+    if mult_match:
+        a = float(mult_match.group(1).replace(",", "."))
+        b = float(mult_match.group(2).replace(",", "."))
+        area = round(a * b, 2)
+    else:
+        area = numeric_value(text)
+
+    if pd.isna(area):
+        return np.nan
+
+    # Fix obvious extra-zero typo (e.g., 2000 m2 -> 200 m2)
+    if area >= 1000:
+        area = round(area / 10.0, 2)
+    return float(area)
+
+
+def parse_campus_distance(value) -> tuple[str, float]:
+    """Extract destination category and distance in meters from question 6."""
+    if pd.isna(value):
+        return "Tidak Disebutkan", np.nan
+    raw = text_value(value)
+    if not raw:
+        return "Tidak Disebutkan", np.nan
+    lower = raw.lower()
+
+    if "del" in lower:
+        destination = "Kampus IT Del"
+    elif "kampus" in lower or "universitas" in lower:
+        destination = "Kampus"
+    elif "sekolah" in lower or "sma" in lower or "smp" in lower:
+        destination = "Sekolah"
+    elif "kantor" in lower or "kerja" in lower:
+        destination = "Kantor"
+    else:
+        destination = "Tidak Disebutkan"
+
+    is_km = bool(re.search(r"\b(?:km|kilometer)\b", lower))
+    val = numeric_value(lower)
+    if pd.isna(val):
+        return destination, np.nan
+
+    if is_km:
+        meters = val * 1000.0
+    elif 0 < val < 10:
+        # Shorthand e.g. 'Kampus 3', 'kampus 5' -> 3000m, 5000m
+        meters = val * 1000.0
+    else:
+        meters = val
+    return destination, round(float(meters), 0)
+
+
+def parse_distance_meters(value) -> float:
+    """Normalize facility distance in meters, fixing km shorthand (1-5 -> 1000-5000) and typo 300010 -> 3000."""
+    if pd.isna(value):
+        return np.nan
+    raw = text_value(value).lower()
+    if not raw:
+        return np.nan
+    is_km = bool(re.search(r"\b(?:km|kilometer)\b", raw))
+    val = numeric_value(raw)
+    if pd.isna(val):
+        return np.nan
+    if is_km:
+        meters = val * 1000.0
+    elif val == 300010:
+        meters = 3000.0
+    elif 0 < val <= 4:
+        # e.g. 1, 2, 3 typed in km instead of meters
+        meters = val * 1000.0
+    else:
+        meters = val
+    return round(float(meters), 0)
+
+
+def classify_distance_meters(meters: float) -> str:
+    """Classify distance in meters into interpretable accessibility tiers."""
+    if pd.isna(meters):
+        return "Tidak Diketahui"
+    if meters <= 500:
+        return "Sangat Dekat (<= 500 m)"
+    if meters <= 1000:
+        return "Dekat (501 - 1000 m)"
+    if meters <= 3000:
+        return "Sedang (1001 - 3000 m)"
+    return "Jauh (> 3000 m)"
+
+
+def parse_floor(value) -> tuple[float, str]:
+    """Normalize floor: 'bawah tanah' -> 1, > 5 -> numeric 4 with category '4 - 5'."""
+    if pd.isna(value):
+        return np.nan, "Tidak Diketahui"
+    raw = text_value(value).lower()
+    if not raw:
+        return np.nan, "Tidak Diketahui"
+    if "bawah tanah" in raw or "basement" in raw or "dasar" in raw:
+        return 1.0, "1"
+    val = numeric_value(raw)
+    if pd.isna(val) or val < 1:
+        return 1.0, "1"
+    if val > 5:
+        return 4.0, "4 - 5"
+    if val >= 4:
+        return float(int(round(val))), "4 - 5"
+    return float(int(round(val))), str(int(round(val)))
+
+
+def parse_rent_price(value, is_annual: int) -> float:
+    """Normalize rent price to full Rupiah integer (e.g. 7 -> 700000/7000000, 100.000 -> 100000)."""
+    val = numeric_value(value)
+    if pd.isna(val) or val <= 0:
+        return np.nan
+
+    # Handle shorthand values where respondents omitted thousand/million zeros
+    if val < 100:
+        # Single/double digit like '7' -> Rp700.000 (or Rp7.000.000 if annual)
+        val = val * (1_000_000.0 if is_annual == 1 else 100_000.0)
+    elif val < 2_000:
+        # 3-digit shorthand like 250, 500, 700, 900 -> Rp250.000 - Rp900.000
+        val = val * 1_000.0
+    elif val < 100_000:
+        # 4-5 digit missing one zero like 10000 -> 100000, 60000 -> 600000
+        val = val * 10.0
+
+    return round(float(val), 0)
+
+
+def parse_extra_cost(value, has_extra_text: str) -> float:
+    """Normalize extra cost in Rupiah, handling '100rb', '40' -> 40000, and enforcing 0 if has_extra == 'Tidak'."""
+    if str(has_extra_text).strip().lower() in ("tidak", "tidak ada", ""):
+        return 0.0
+    if pd.isna(value):
+        return 0.0
+    raw = text_value(value).lower()
+    if not raw or any(phrase in raw for phrase in ("tidak", "tak", "kosong", "-")):
+        return 0.0
+    is_ribu = bool(re.search(r"\b(?:rb|ribu|k)\b|\d+(?:rb|ribu|k)\b", raw))
+    val = numeric_value(raw)
+    if pd.isna(val) or val <= 0:
+        return 0.0
+    if is_ribu or val < 1000:
+        val = val * 1000.0
+    return round(float(val), 0)
+
+
+def normalize_desa(value: str) -> str:
+    text = text_value(value)
+    if not text:
+        return "Tidak Disebutkan"
+    cleaned = re.sub(r"^(?:desa|kelurahan)\s+", "", text, flags=re.IGNORECASE).strip()
+    lower = cleaned.lower()
+    mapping = {
+        "pintubosi": "Pintu Bosi",
+        "pintu bosi": "Pintu Bosi",
+        "pardede onan": "Pardede Onan",
+        "soposurung": "Soposurung",
+        "belakang gereja soposurung": "Soposurung",
+        "simpang hkbp sopo surung": "Soposurung",
+        "simpang hkbp soposurung": "Soposurung",
+        "sitoluama": "Sitoluama",
+        "sitolu ama,jln arjuna": "Sitoluama",
+        "balige 1": "Balige I",
+        "balige i": "Balige I",
+        "balige 2": "Balige II",
+        "balige ii": "Balige II",
+        "balige iii": "Balige III",
+        "gang demak, balige iii": "Balige III",
+        "silalahi pagarbatu": "Silalahi Pagar Batu",
+        "silalahi pagar batu": "Silalahi Pagar Batu",
+        "pagarbatu": "Silalahi Pagar Batu",
+        "napitupulu bagasan": "Napitupulu Bagasan",
+        "napitupulu": "Napitupulu Bagasan",
+        "sangkar nihuta 1 balige": "Sangkar Nihuta",
+        "sangkar nihuta, kec. balige": "Sangkar Nihuta",
+        "sangkar nihuta": "Sangkar Nihuta",
+        "lumban dolok hauma bange": "Lumban Dolok Haume Bange",
+        "lumban dolok haume bange, kec. balige, kabupaten toba, sumatera utara": "Lumban Dolok Haume Bange",
+        "lumban dolok haume bange": "Lumban Dolok Haume Bange",
+        "sibolahotang sas": "Sibolahotang SAS",
+        "sibolo hotanghas": "Sibolahotang SAS",
+        "parparean": "Parparean",
+    }
+    if lower in mapping:
+        return mapping[lower]
+    if "narumonda v" in lower:
+        return "Narumonda V"
+    if "bahas huta" in lower:
+        return "Bahas Huta"
+    # Preserve Roman numerals at the end (I, II, III, IV, V)
+    titled = cleaned.title()
+    titled = re.sub(r"\b(Ii|Iii|Iv|Vi)\b", lambda m: m.group(1).upper(), titled)
+    titled = re.sub(r"\bSas\b", "SAS", titled)
+    return titled
+
+
+def normalize_security(value: str) -> str:
+    """Standardize security values, merging 'CCTV Saja' and 'CCTV' into 'CCTV'."""
+    text = text_value(value)
+    lower = text.lower()
+    if "penjaga" in lower and "cctv" in lower:
+        return "Penjaga & CCTV"
+    if "penjaga" in lower or "satpam" in lower:
+        return "Penjaga/Satpam"
+    if "cctv" in lower:
+        return "CCTV"
+    return "Tidak Ada"
+
+
+def normalize_parking(value: str) -> str:
+    text = text_value(value).lower()
+    if "mobil" in text:
+        return "Mobil & Motor"
+    if "motor" in text:
+        return "Motor Saja"
+    return "Tidak Ada"
+
+
+def normalize_night_rule(value: str) -> str:
+    text = text_value(value).lower()
+    if "bebas" in text:
+        return "Bebas 24 Jam"
+    return "Ada Batas Jam Malam"
+
+
+def normalize_bathroom_type(value: str) -> str:
+    text = text_value(value).lower()
+    if "dalam" in text:
+        return "dalam"
+    return "luar"
 
 
 def normalize_survey(raw_path: Path = RAW_PATH):
     df = pd.read_csv(raw_path)
     raw_count = len(df)
+
+    # Measure raw quality metrics before preprocessing
+    raw_missing_cells = int(df.isna().sum().sum())
+    raw_exact_duplicates = int(df.duplicated(keep=False).sum())
 
     name = find_column(df, "nama kos")
     kecamatan = find_column(df, "kecamatan")
@@ -93,48 +372,106 @@ def normalize_survey(raw_path: Path = RAW_PATH):
     water = find_column(df, "sumber air")
     validity = find_column(df, "harga sewa tersebut masih berlaku")
     included_cost = find_column(df, "harga sewa kos sudah termasuk")
-    has_extra_cost = find_column(df, "biaya tambahan")
+    has_extra_cost = find_column(df, "biaya tambahan", "di luar")
+    if has_extra_cost is None:
+        has_extra_cost = find_column(df, "biaya tambahan")
     extra_cost = find_column(df, "total biaya tambahan")
-    renter_age = find_column(df, "usia")
-    renter_year = find_column(df, "sejak tahun")
+    timestamp_col = find_column(df, "timestamp", required=False)
 
     canonical = pd.DataFrame()
-    canonical["nama_kost"] = df[name].map(text_value).str.strip()
-    canonical["kecamatan"] = df[kecamatan].map(text_value).str.strip().str.title()
-    canonical["desa_kelurahan"] = df[desa].map(text_value).str.strip().str.title()
-    canonical["kategori_penghuni"] = df[category].map(text_value).str.strip().str.title()
-    canonical["status_penyewa"] = df[occupant_status].map(text_value).str.strip()
-    canonical["status_penyewa"] = canonical["status_penyewa"].str.lower().replace({
-        "siswa": "pelajar",
-        "siswa sma": "pelajar",
-        "pelajar sma": "pelajar",
-        "siswa/pelajar": "pelajar",
-    }).replace("", "tidak disebutkan").str.title()
-    canonical["usia_mulai_menyewa"] = df[renter_age].map(numeric_value)
-    canonical["tahun_mulai_menyewa"] = df[renter_year].map(numeric_value)
+    if timestamp_col:
+        canonical["timestamp_survei"] = df[timestamp_col].map(text_value)
 
-    numeric_columns = {
-        "jarak_kampus_sekolah_tempatkerja_m": campus_distance,
+    canonical["nama_kost"] = (
+        df[name]
+        .map(text_value)
+        .replace({"-": "Kos Tanpa Nama", "Tidak ada nama": "Kos Tanpa Nama", "": "Kos Tanpa Nama"})
+    )
+    canonical["kecamatan"] = df[kecamatan].map(text_value).str.strip().str.title()
+    canonical["desa_kelurahan"] = df[desa].map(normalize_desa)
+    canonical["kategori_penghuni"] = df[category].map(text_value).str.strip().str.title()
+
+    canonical["status_penyewa"] = (
+        df[occupant_status]
+        .map(text_value)
+        .str.lower()
+        .replace(
+            {
+                "siswa": "pelajar",
+                "siswa sma": "pelajar",
+                "pelajar sma": "pelajar",
+                "siswa/pelajar": "pelajar",
+                "pelajar": "pelajar",
+                "": "tidak disebutkan",
+            }
+        )
+        .str.title()
+    )
+
+    # Campus/School/Office distance and destination
+    parsed_campus = df[campus_distance].map(parse_campus_distance)
+    canonical["tujuan_utama"] = [item[0] for item in parsed_campus]
+    canonical["jarak_kampus_sekolah_tempatkerja_m"] = [item[1] for item in parsed_campus]
+    # Fill single missing campus distance (e.g. 'Kantor' without number) with median of same kecamatan
+    canonical["jarak_kampus_sekolah_tempatkerja_m"] = canonical.groupby("kecamatan")[
+        "jarak_kampus_sekolah_tempatkerja_m"
+    ].transform(lambda s: s.fillna(s.median()))
+
+    distance_sources = {
         "jarak_pasar_minimarket_m": market_distance,
         "jarak_fasilitas_kesehatan_m": health_distance,
         "jarak_tempat_ibadah_m": worship_distance,
         "jarak_laundry_m": laundry_distance,
         "jarak_pusat_kota_m": center_distance,
         "jarak_jalan_raya_m": road_distance,
-        "luas_kamar_m2": room_area,
-        "harga_sewa": rent,
     }
-    for output, source in numeric_columns.items():
-        canonical[output] = df[source].map(numeric_value)
+    for output_col, source_col in distance_sources.items():
+        canonical[output_col] = df[source_col].map(parse_distance_meters)
 
-    canonical["jumlah_lantai"] = df[room_floor].map(numeric_value)
-    canonical["tipe_kamar_mandi"] = df[bathroom_type].map(text_value).str.strip().str.lower()
+    # Add distance classification columns for each distance metric (all in meters)
+    distance_cols_m = [
+        "jarak_kampus_sekolah_tempatkerja_m",
+        "jarak_pasar_minimarket_m",
+        "jarak_fasilitas_kesehatan_m",
+        "jarak_tempat_ibadah_m",
+        "jarak_laundry_m",
+        "jarak_pusat_kota_m",
+        "jarak_jalan_raya_m",
+    ]
+    for col_m in distance_cols_m:
+        class_col = re.sub(r"_m$", "", col_m).replace("jarak_", "klasifikasi_jarak_")
+        canonical[class_col] = canonical[col_m].map(classify_distance_meters)
+
+    # Room floor and room area
+    parsed_floors = df[room_floor].map(parse_floor)
+    canonical["jumlah_lantai"] = [item[0] for item in parsed_floors]
+    canonical["kategori_lantai"] = [item[1] for item in parsed_floors]
+    canonical["luas_kamar_m2"] = df[room_area].map(parse_room_area)
+
+    # Bathroom type and facilities
+    canonical["tipe_kamar_mandi"] = df[bathroom_type].map(normalize_bathroom_type)
+    canonical["km_dalam"] = canonical["tipe_kamar_mandi"].eq("dalam").astype(int)
     canonical["kelengkapan_kamar_mandi"] = df[bathroom_facilities].map(text_value)
-    canonical["kloset_duduk"] = canonical["kelengkapan_kamar_mandi"].str.contains("duduk", case=False, na=False).astype(int)
-    canonical["kloset_jongkok"] = canonical["kelengkapan_kamar_mandi"].str.contains("jongkok", case=False, na=False).astype(int)
-    canonical["ada_shower"] = canonical["kelengkapan_kamar_mandi"].str.contains("shower", case=False, na=False).astype(int)
-    canonical["ada_water_heater"] = canonical["kelengkapan_kamar_mandi"].str.contains("water heater", case=False, na=False).astype(int)
+    canonical["kloset_duduk"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("duduk", case=False, na=False).astype(int)
+    )
+    canonical["kloset_jongkok"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("jongkok", case=False, na=False).astype(int)
+    )
+    canonical["ada_shower"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("shower", case=False, na=False).astype(int)
+    )
+    canonical["ada_water_heater"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("water heater", case=False, na=False).astype(int)
+    )
+    canonical["ada_bak_mandi"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("bak mandi", case=False, na=False).astype(int)
+    )
+    canonical["ada_gayung"] = (
+        canonical["kelengkapan_kamar_mandi"].str.contains("gayung", case=False, na=False).astype(int)
+    )
 
+    # Bedroom facilities
     facilities = df[bedroom_facilities].map(text_value)
     canonical["fasilitas_kamar_detail"] = facilities
     for name_output, phrase in {
@@ -145,45 +482,77 @@ def normalize_survey(raw_path: Path = RAW_PATH):
         "ada_tv": "televisi",
         "ada_cermin": "cermin",
         "ada_kulkas_pribadi": "kulkas",
+        "ada_ventilasi": "ventilasi",
+        "ada_gorden": "gorden",
+        "ada_rak_sepatu": "rak sepatu",
+        "ada_gantungan_baju": "gantungan baju",
     }.items():
         canonical[name_output] = facilities.str.contains(phrase, case=False, na=False).astype(int)
 
-    canonical["ac"] = df[ac].map(text_value).str.contains("Ada", case=False, na=False).astype(int)
+    canonical["ac"] = df[ac].map(text_value).str.lower().eq("ada").astype(int)
     canonical["skema_listrik"] = df[electricity].map(text_value)
-    canonical["listrik_termasuk"] = canonical["skema_listrik"].str.contains("termasuk", case=False, na=False).astype(int)
+    canonical["listrik_termasuk"] = (
+        canonical["skema_listrik"].str.contains("termasuk", case=False, na=False).astype(int)
+    )
     canonical["periode_sewa"] = df[period].map(text_value).str.strip().str.lower()
     canonical["sewa_tahunan"] = canonical["periode_sewa"].eq("per tahun").astype(int)
+
+    # Standardized integer Rupiah rent price (e.g. 7 -> 700000/7000000, 100.000 -> 100000)
+    canonical["harga_sewa"] = [
+        parse_rent_price(val, annual)
+        for val, annual in zip(df[rent], canonical["sewa_tahunan"])
+    ]
     canonical["harga_bulanan_norm"] = np.where(
         canonical["sewa_tahunan"].eq(1),
-        canonical["harga_sewa"] / 12,
+        canonical["harga_sewa"] / 12.0,
         canonical["harga_sewa"],
-    )
-    canonical["harga_bulanan_norm"] = canonical["harga_bulanan_norm"].round()
+    ).round(0)
 
-    canonical["keamanan_kos"] = df[security].map(text_value)
-    canonical["lahan_parkir"] = df[parking].map(text_value)
-    canonical["aturan_jam_malam"] = df[night_rule].map(text_value)
+    # Security, parking, rules, utilities
+    canonical["keamanan_kos"] = df[security].map(normalize_security)
+    canonical["lahan_parkir"] = df[parking].map(normalize_parking)
+    canonical["aturan_jam_malam"] = df[night_rule].map(normalize_night_rule)
     canonical["kapasitas_kamar"] = df[capacity].map(text_value)
     canonical["wifi"] = df[wifi].map(text_value).str.strip().str.lower()
+    canonical["is_wifi"] = canonical["wifi"].eq("ada").astype(int)
     canonical["sumber_air"] = df[water].map(text_value)
     canonical["fasilitas_dapur"] = df[kitchen].map(text_value)
-    canonical["fasilitas_cuci_jemur"] = df[laundry].map(text_value)
+    canonical["fasilitas_cuci_jemur"] = (
+        df[laundry]
+        .map(text_value)
+        .replace("", "Hanya area penjemuran tanpa mesin cuci")
+    )
     canonical["area_tempat_makan"] = df[eating_area].map(text_value)
+
     canonical["status_harga"] = df[validity].map(text_value)
-    canonical["harga_masih_berlaku"] = canonical["status_harga"].str.startswith("Ya", na=False).astype(int)
+    canonical["harga_masih_berlaku"] = (
+        canonical["status_harga"].str.startswith("Ya", na=False).astype(int)
+    )
     canonical["kos_aktif"] = (
         ~canonical["status_harga"].str.contains("tidak beroperasi", case=False, na=False)
     ).astype(int)
 
-    canonical["biaya_sewa_sudah_mencakup"] = df[included_cost].map(text_value)
-    canonical["ada_biaya_tambahan"] = df[has_extra_cost].map(text_value)
-    canonical["biaya_tambahan_rp"] = df[extra_cost].map(numeric_value)
-    canonical["biaya_tambahan_rp"] = canonical["biaya_tambahan_rp"].fillna(0)
+    canonical["biaya_sewa_sudah_mencakup"] = (
+        df[included_cost].map(text_value).replace("", "Tidak Disebutkan")
+    )
+    canonical["ada_biaya_tambahan"] = (
+        df[has_extra_cost].map(text_value).replace("", "Tidak").str.title()
+    )
+    canonical["biaya_tambahan_rp"] = [
+        parse_extra_cost(val, flag)
+        for val, flag in zip(df[extra_cost], canonical["ada_biaya_tambahan"])
+    ]
 
+    # Duplicate and quality flags
     canonical["exact_duplicate"] = df.duplicated(keep=False).astype(int)
     duplicate_key = [
-        "nama_kost", "kecamatan", "desa_kelurahan", "jumlah_lantai",
-        "luas_kamar_m2", "periode_sewa", "harga_sewa",
+        "nama_kost",
+        "kecamatan",
+        "desa_kelurahan",
+        "jumlah_lantai",
+        "luas_kamar_m2",
+        "periode_sewa",
+        "harga_sewa",
     ]
     canonical["duplicate_logis"] = canonical.duplicated(subset=duplicate_key, keep=False).astype(int)
 
@@ -191,7 +560,7 @@ def normalize_survey(raw_path: Path = RAW_PATH):
         canonical["harga_bulanan_norm"].ge(100_000)
         & canonical["harga_bulanan_norm"].le(20_000_000)
         & canonical["luas_kamar_m2"].gt(0)
-        & canonical["luas_kamar_m2"].le(100)
+        & canonical["luas_kamar_m2"].le(300)
     )
     q1 = canonical.loc[valid_numeric, "harga_bulanan_norm"].quantile(0.25)
     q3 = canonical.loc[valid_numeric, "harga_bulanan_norm"].quantile(0.75)
@@ -225,23 +594,48 @@ def normalize_survey(raw_path: Path = RAW_PATH):
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     canonical.to_csv(STAGING_PATH, index=False)
 
+    missing_after = {
+        column: int(count)
+        for column, count in canonical.isna().sum().sort_values(ascending=False).items()
+        if count
+    }
     report = {
         "raw_path": str(raw_path),
         "raw_rows": raw_count,
         "raw_columns": len(df.columns),
         "staging_path": str(STAGING_PATH),
         "staging_rows": len(canonical),
+        "staging_columns": len(canonical.columns),
         "exact_duplicates": int(canonical["exact_duplicate"].sum()),
         "logical_duplicate_rows": int(canonical["duplicate_logis"].sum()),
         "accepted_for_analysis": int(canonical["accepted_for_analysis"].sum()),
         "model_ready": int(canonical["model_ready"].sum()),
         "price_anomaly_iqr": int(canonical["price_anomaly_iqr"].sum()),
         "price_iqr_bounds": {"lower": round(float(lower), 2), "upper": round(float(upper), 2)},
-        "missing_cells_by_column": {
-            column: int(count)
-            for column, count in canonical.isna().sum().sort_values(ascending=False).items()
-            if count
+        "quality_dimensions_before_after": {
+            "completeness": {
+                "raw_missing_cells": raw_missing_cells,
+                "staging_missing_cells": int(canonical.isna().sum().sum()),
+            },
+            "validity": {
+                "valid_numeric_rows": int(valid_numeric.sum()),
+                "active_kos_rows": int(canonical["kos_aktif"].sum()),
+                "accepted_for_analysis": int(canonical["accepted_for_analysis"].sum()),
+            },
+            "consistency": {
+                "security_categories": sorted(canonical["keamanan_kos"].unique().tolist()),
+                "bathroom_type_categories": sorted(canonical["tipe_kamar_mandi"].unique().tolist()),
+                "parking_categories": sorted(canonical["lahan_parkir"].unique().tolist()),
+                "night_rule_categories": sorted(canonical["aturan_jam_malam"].unique().tolist()),
+                "floor_categories": sorted(canonical["kategori_lantai"].unique().tolist()),
+            },
+            "uniqueness": {
+                "exact_duplicates": raw_exact_duplicates,
+                "logical_duplicate_rows": int(canonical["duplicate_logis"].sum()),
+                "unique_rows": int(len(canonical) - canonical["duplicate_logis"].sum()),
+            },
         },
+        "missing_cells_by_column": missing_after,
         "rejection_counts": canonical["rejection_reason"].value_counts().to_dict(),
     }
     REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")

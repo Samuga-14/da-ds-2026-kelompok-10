@@ -19,6 +19,7 @@ import subprocess
 import webbrowser
 from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
@@ -26,7 +27,16 @@ import pandas as pd
 import sklearn
 
 from models.features import FEATURE_COLS, add_derived_features, add_model_features, build_feature_frame
-from services.analytics_service import enrich_price_analysis, feature_importance
+from services.analytics_service import (
+    FACILITY_FILTERS,
+    SIMULATABLE_FACILITIES,
+    classify_fair_price,
+    enrich_price_analysis,
+    feature_importance,
+    get_price_summary,
+    get_storytelling_insights,
+    simulate_facility_upgrades,
+)
 from services.database import connect, connection, ensure_readable_object, validate
 from server_config import (
     BASE_DIR,
@@ -36,6 +46,7 @@ from server_config import (
     HOST,
     ADMIN_API_KEY,
     MODEL_PKL_PATH,
+    NORMALIZE_SCRIPT_PATH,
     PORT,
     TRAIN_SCRIPT_PATH,
 )
@@ -58,6 +69,8 @@ def ensure_database():
     """Ensure the SQLite warehouse exists without retraining models implicitly."""
     if not os.path.exists(DB_PATH):
         print("[INIT] Membangun SQLite Star Schema Data Warehouse...")
+        if os.path.exists(NORMALIZE_SCRIPT_PATH):
+            subprocess.run([sys.executable, NORMALIZE_SCRIPT_PATH], check=True, cwd=BASE_DIR)
         subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
 
 
@@ -161,6 +174,211 @@ def _json_safe(value):
     return value
 
 
+def _build_survey_eda_payload():
+    base_dir = Path(BASE_DIR)
+    staging_path = base_dir / "data" / "staging" / "survey_clean_v1.csv"
+    if not staging_path.exists():
+        return None
+
+    df = pd.read_csv(staging_path)
+    analysis = df.loc[df["accepted_for_analysis"].eq(1)].copy()
+    prices = pd.to_numeric(analysis["harga_bulanan_norm"], errors="coerce").dropna()
+    areas = pd.to_numeric(analysis["luas_kamar_m2"], errors="coerce").dropna()
+
+    def median_rows(column):
+        result = (
+            analysis.groupby(column)["harga_bulanan_norm"]
+            .agg(["count", "median"])
+            .dropna()
+            .reset_index()
+            .sort_values("median")
+        )
+        return [
+            {"label": str(row[column]), "median": float(row["median"]), "count": int(row["count"])}
+            for _, row in result.iterrows()
+        ]
+
+    hist_prices = np.histogram(prices, bins=12)
+    hist_areas = np.histogram(areas, bins=12)
+
+    wifi_labels = analysis["wifi"].fillna("").astype(str).str.lower().str.contains("ada|tersedia")
+    bathroom_labels = analysis["tipe_kamar_mandi"].fillna("").astype(str).str.lower().str.contains("dalam")
+    facility_groups = {
+        "AC": {
+            "Ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(1), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(1)).any() else None,
+            "Tidak ada AC": float(pd.to_numeric(analysis.loc[analysis["ac"].eq(0), "harga_bulanan_norm"], errors="coerce").median()) if (analysis["ac"].eq(0)).any() else None,
+        },
+        "Wi-Fi": {
+            "Ada Wi-Fi": float(pd.to_numeric(analysis.loc[wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if wifi_labels.any() else None,
+            "Tanpa Wi-Fi": float(pd.to_numeric(analysis.loc[~wifi_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~wifi_labels).any() else None,
+        },
+        "Kamar mandi": {
+            "KM dalam": float(pd.to_numeric(analysis.loc[bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if bathroom_labels.any() else None,
+            "KM luar/lainnya": float(pd.to_numeric(analysis.loc[~bathroom_labels, "harga_bulanan_norm"], errors="coerce").median()) if (~bathroom_labels).any() else None,
+        },
+    }
+
+    distance_columns = [column for column in analysis.columns if column.startswith("jarak_")]
+    distance_corr = {}
+    for column in distance_columns:
+        pair = pd.DataFrame({
+            "harga": pd.to_numeric(analysis["harga_bulanan_norm"], errors="coerce"),
+            "jarak": pd.to_numeric(analysis[column], errors="coerce"),
+        }).dropna()
+        corr = float(pair.corr(method="spearman").iloc[0, 1]) if len(pair) >= 2 else 0.0
+        distance_corr[column] = corr
+
+    q1 = float(prices.quantile(0.25))
+    q3 = float(prices.quantile(0.75))
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    missing = df.isna().sum().sort_values(ascending=False)
+    missing = missing.drop(
+        labels=[column for column in ["rejection_reason"] if column in missing.index],
+        errors="ignore",
+    )
+
+    quality = {
+        "raw_rows": int(len(df)),
+        "accepted_rows": int(len(analysis)),
+        "exact_duplicates": int(df["exact_duplicate"].sum()) if "exact_duplicate" in df else 0,
+        "logical_duplicates": int(df["duplicate_logis"].sum()) if "duplicate_logis" in df else 0,
+        "outliers": int(df["price_anomaly_iqr"].sum()) if "price_anomaly_iqr" in df else 0,
+        "model_ready": int(df["model_ready"].sum()) if "model_ready" in df else 0,
+        "missing": [{"column": str(column), "count": int(count)} for column, count in missing.items() if count > 0],
+    }
+
+    return {
+        "quality": quality,
+        "price_histogram": {
+            "counts": hist_prices[0].tolist(),
+            "edges": hist_prices[1].tolist(),
+            "median": float(prices.median()),
+        },
+        "area_histogram": {
+            "counts": hist_areas[0].tolist(),
+            "edges": hist_areas[1].tolist(),
+            "median": float(areas.median()),
+        },
+        "kecamatan": median_rows("kecamatan"),
+        "kategori_penghuni": median_rows("kategori_penghuni"),
+        "area_scatter": [
+            {"area": float(row["luas_kamar_m2"]), "price": float(row["harga_bulanan_norm"])}
+            for _, row in analysis[[ "luas_kamar_m2", "harga_bulanan_norm"]].dropna().iterrows()
+        ],
+        "facility_groups": facility_groups,
+        "distance_corr": [
+            {"label": column.replace("jarak_", "").replace("_m", "").replace("_", " ").title(), "correlation": corr}
+            for column, corr in sorted(distance_corr.items(), key=lambda item: item[1])
+        ],
+        "outlier": {
+            "prices": prices.tolist(),
+            "lower": lower,
+            "upper": upper,
+        },
+    }
+def _read_summary_filters(query):
+    """Read and validate the supported /api/summary query parameters."""
+    with connection() as conn:
+        districts = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kecamatan FROM dim_lokasi "
+                "WHERE kecamatan IS NOT NULL ORDER BY kecamatan"
+            ).fetchall()
+        ]
+        resident_categories = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT kategori_penghuni FROM dim_fasilitas_aturan "
+                "WHERE kategori_penghuni IS NOT NULL ORDER BY kategori_penghuni"
+            ).fetchall()
+        ]
+        payment_periods = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT sewa_tahunan_bulanan FROM dim_kontrak_sewa "
+                "WHERE sewa_tahunan_bulanan IS NOT NULL "
+                "ORDER BY sewa_tahunan_bulanan"
+            ).fetchall()
+        ]
+        start_years = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT tahun_mulai_sewa FROM dim_kontrak_sewa "
+                "WHERE tahun_mulai_sewa IS NOT NULL ORDER BY tahun_mulai_sewa"
+            ).fetchall()
+        ]
+
+    allowed_filters = {
+        "kecamatan": (districts, districts),
+        "kategori_penghuni": (
+            [str(value).lower() for value in resident_categories],
+            resident_categories,
+        ),
+        "sewa_tahunan_bulanan": (
+            [str(value).lower() for value in payment_periods],
+            payment_periods,
+        ),
+        "tahun_mulai_sewa": (start_years, start_years),
+        "fasilitas": (list(FACILITY_FILTERS), list(FACILITY_FILTERS)),
+    }
+
+    filters = {}
+    for name, (allowed_values, canonical_values) in allowed_filters.items():
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+
+        lookup = str(value).casefold()
+        matched_index = None
+        for index, allowed in enumerate(allowed_values):
+            if str(allowed).casefold() == lookup:
+                matched_index = index
+                break
+
+        if matched_index is None:
+            choices = ", ".join(str(choice) for choice in canonical_values)
+            raise RequestValidationError(
+                f"Nilai '{value}' tidak valid untuk parameter '{name}'. "
+                f"Pilihan tersedia: {choices}."
+            )
+
+        filters[name] = canonical_values[matched_index]
+
+    for name in ("harga_min", "harga_max"):
+        raw_values = query.get(name)
+        if not raw_values:
+            continue
+
+        value = str(raw_values[0]).strip()
+        if not value or value.upper() == "ALL":
+            continue
+        try:
+            numeric_value = float(value)
+        except ValueError as exc:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            ) from exc
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            raise RequestValidationError(
+                f"Parameter '{name}' harus berupa angka finite dan tidak negatif."
+            )
+        filters[name] = numeric_value
+
+    if (
+        filters.get("harga_min") is not None
+        and filters.get("harga_max") is not None
+        and filters["harga_min"] > filters["harga_max"]
+    ):
+        raise RequestValidationError(
+            "Parameter 'harga_min' tidak boleh lebih besar daripada 'harga_max'."
+        )
+
+    return filters
+
+
 def get_full_analytics_payload():
     """Mengambil seluruh data dari SQLite Star Schema + prediksi ML untuk Frontend."""
     bundle = load_model_bundle()
@@ -185,6 +403,8 @@ def get_full_analytics_payload():
 
     # Feature importance dari Random Forest & Gradient Boosting
     rf_model = all_models["Random Forest Regressor (Tuned)"]
+    survey_eda = _build_survey_eda_payload()
+    storytelling = get_storytelling_insights(df)
 
     return _json_safe({
         "status": "ok",
@@ -195,6 +415,8 @@ def get_full_analytics_payload():
         "metrics": metrics,
         "feature_importance": feature_importance(rf_model),
         "star_schema": tables_info,
+        "survey_eda": survey_eda,
+        "storytelling": storytelling,
         "records": df.to_dict(orient="records")
     })
 
@@ -286,6 +508,13 @@ def predict_single_kos(payload):
         }
 
     mae_val = int(metrics[selected_algo]["MAE"])
+    fair_eval = None
+    if "actual_monthly_rp" in payload and payload["actual_monthly_rp"] not in (None, ""):
+        actual_rp = _read_numeric(payload, "actual_monthly_rp", selected_result)
+        fair_eval = classify_fair_price(actual_rp, selected_result)
+
+    simulation = simulate_facility_upgrades(values, all_models[selected_algo])
+
     return {
         "status": "ok" if all(not isinstance(prediction, dict) for prediction in predictions.values()) else "partial",
         "selected_algorithm": selected_algo,
@@ -297,8 +526,53 @@ def predict_single_kos(payload):
         "skor_kelengkapan_fasilitas": skor_fas,
         "indeks_aksesibilitas_lokasi": indeks_aks,
         "best_algorithm": bundle["best_algorithm"],
-        "all_predictions": predictions
+        "all_predictions": predictions,
+        "fair_price_evaluation": fair_eval,
+        "facility_simulation": simulation,
     }
+
+
+def simulate_kos_facilities(payload):
+    """Run counterfactual facility simulation and optional fair-price classification (Issues #22, #28, #33, #39)."""
+    bundle = load_model_bundle()
+    all_models = bundle["all_models"]
+    selected_algo = payload.get("algorithm", bundle["best_algorithm"])
+    if not isinstance(selected_algo, str) or selected_algo not in all_models:
+        raise RequestValidationError("Algoritma tidak dikenal. Pilih salah satu algoritma yang tersedia.")
+
+    binary_defaults = {
+        "km_dalam": 1, "is_ac": 0, "is_wifi": 1, "ada_tv": 0,
+        "ada_meja_belajar": 1, "parkir_mobil": 0, "dapur_pribadi": 0,
+        "dapur_bersama": 1, "keamanan_penjaga": 0, "keamanan_cctv": 1,
+        "bebas_24jam": 1, "listrik_termasuk": 0, "is_tahunan": 0
+    }
+    values = {
+        "luas_kamar_m2": _read_numeric(payload, "luas_kamar_m2", 12),
+        "jumlah_lantai": _read_numeric(payload, "jumlah_lantai", 1, integer=True),
+        **{
+            name: _read_numeric(payload, name, default, binary=True)
+            for name, default in binary_defaults.items()
+        },
+        "jarak_ke_kampus_kantor_sekolah_terdekat_km": _read_numeric(
+            payload, "jarak_ke_kampus_kantor_sekolah_terdekat_km", 0.5
+        ),
+        "jarak_ke_pasar_km": _read_numeric(payload, "jarak_ke_pasar_km", 0.6),
+        "jarak_krusial_km": _read_numeric(payload, "jarak_krusial_km", 0.9),
+        "jarak_ke_jalan_raya_m": _read_numeric(payload, "jarak_ke_jalan_raya_m", 50)
+    }
+
+    upgrades = payload.get("upgrades")
+    if upgrades is not None:
+        if not isinstance(upgrades, list) or any(u not in SIMULATABLE_FACILITIES for u in upgrades):
+            raise RequestValidationError(
+                f"Daftar 'upgrades' tidak valid. Pilihan: {', '.join(SIMULATABLE_FACILITIES)}."
+            )
+
+    sim_result = simulate_facility_upgrades(values, all_models[selected_algo], candidate_upgrades=upgrades)
+    if "actual_monthly_rp" in payload and payload["actual_monthly_rp"] not in (None, ""):
+        actual_rp = _read_numeric(payload, "actual_monthly_rp", sim_result["baseline_monthly_rp"])
+        sim_result["fair_price_evaluation"] = classify_fair_price(actual_rp, sim_result["baseline_monthly_rp"])
+    return sim_result
 
 
 def insert_new_kos_to_dw(payload):
@@ -494,6 +768,30 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
                 self._send_api_exception(exc)
             return
 
+        if path == "/api/summary":
+            try:
+                qs = parse_qs(parsed.query, keep_blank_values=True)
+                filters = _read_summary_filters(qs)
+                self._send_json(get_price_summary(filters))
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
+        if path == "/api/storytelling":
+            try:
+                with connection() as conn:
+                    df_s = pd.read_sql_query("SELECT * FROM vw_mart_kos_lengkap", conn)
+                try:
+                    bundle = load_model_bundle()
+                    df_s = add_model_features(df_s)
+                    df_s = enrich_price_analysis(df_s, bundle["all_models"])
+                except Exception:
+                    pass
+                self._send_json(get_storytelling_insights(df_s))
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
         if path == "/api/warehouse":
             qs = parse_qs(parsed.query)
             table_name = qs.get("table", ["fact_sewa_kos"])[0]
@@ -521,7 +819,7 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/predict", "/api/kos", "/api/run-etl"}:
+        if parsed.path not in {"/api/predict", "/api/simulate", "/api/kos", "/api/run-etl"}:
             self._send_json({"status": "error", "message": "Endpoint tidak ditemukan"}, HTTPStatus.NOT_FOUND)
             return
         try:
@@ -551,6 +849,13 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
                 self._send_api_exception(exc)
             return
 
+        if parsed.path == "/api/simulate":
+            try:
+                self._send_json(simulate_kos_facilities(body))
+            except Exception as exc:
+                self._send_api_exception(exc)
+            return
+
         if parsed.path == "/api/kos":
             try:
                 self._send_json(insert_new_kos_to_dw(body))
@@ -560,12 +865,20 @@ class PaketARequestHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/run-etl":
             try:
+                if os.path.exists(NORMALIZE_SCRIPT_PATH):
+                    subprocess.run([sys.executable, NORMALIZE_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 subprocess.run([sys.executable, ETL_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 subprocess.run([sys.executable, TRAIN_SCRIPT_PATH], check=True, cwd=BASE_DIR)
                 global MODEL_BUNDLE
                 MODEL_BUNDLE = None
-                load_model_bundle()
-                self._send_json({"status": "ok", "message": "Pipeline ETL & Pelatihan 4 Model Regresi berhasil dijalankan ulang."})
+                bundle = load_model_bundle()
+                records_count = _validate_database()
+                self._send_json({
+                    "status": "ok",
+                    "warehouse_records": records_count,
+                    "best_algorithm": bundle["best_algorithm"],
+                    "message": "Pipeline Normalisasi Survei 928 Baris, ETL Star Schema, & Pelatihan 4 Model Regresi berhasil dijalankan ulang.",
+                })
             except Exception as exc:
                 self._send_api_exception(exc)
             return
