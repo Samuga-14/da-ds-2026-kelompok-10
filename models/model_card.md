@@ -1,37 +1,40 @@
-# Model Card — Prediksi Harga Sewa Kos Kabupaten Toba
+# Model Card
 
-## 1. Tujuan & Cakupan Penggunaan
+## Status
 
-Model ini memprediksi **tarif sewa kos ekuivalen bulanan (`harga_bulanan_norm` dalam Rupiah/bulan)** di Kabupaten Toba berdasarkan spesifikasi ukuran kamar, posisi lantai, fasilitas kamar & kamar mandi, sistem keamanan, skema pembayaran, dan jarak aksesibilitas lokasi.
+Model aktif saat ini masih model baseline berbasis data dummy. Jangan menganggap metriknya
+sebagai performa pada data riil.
 
-Hasil prediksi model digunakan pada aplikasi TobaKost untuk tiga fungsi utama:
-1. **Kalkulator Estimasi Harga Sewa (`POST /api/predict`):** Membantu calon penyewa dan pemilik kos mengetahui estimasi harga pasar bulanan dan tahunan beserta rentang toleransi $\pm\text{MAE}$.
-2. **Evaluasi & Klasifikasi Kewajaran Harga (`classify_fair_price` & `enrich_price_analysis` — Issue #22 / #28):** Mengklasifikasikan unit kos berdasarkan persentase selisih harga aktual terhadap prediksi model (`selisih_persen = (harga_aktual - prediksi) / prediksi * 100%`) dengan ambang batas (**threshold**) **$\pm 6,0\%$**:
-   - **`Underpriced (Sangat Hemat)` (`murah`):** `selisih_persen < -6,0%` (tarif aktual lebih murah $>6\%$ dari estimasi model untuk spesifikasi setara).
-   - **`Fair Price (Harga Wajar)` (`wajar`):** `-6,0% <= selisih_persen <= +6,0%` (tarif sesuai standar pasar Kabupaten Toba).
-   - **`Overpriced (Kemahalan)` (`mahal`):** `selisih_persen > +6,0%` (tarif aktual di atas estimasi model; disarankan mengecek fasilitas non-standar atau melakukan negosiasi).
-3. **Simulasi Penambahan Fasilitas (`simulate_facility_upgrades` & `POST /api/simulate` — Issue #22 / #33):** Mensimulasikan perubahan estimasi tarif bulanan apabila pemilik kos menambahkan fasilitas tertentu (seperti AC, Kamar Mandi Dalam, Wi-Fi, TV, Meja Belajar, Parkir Mobil, Dapur Pribadi, atau Keamanan Penjaga/CCTV).
+## Ringkasan
 
----
+- Target: `harga_bulanan_norm`.
+- Kandidat: Linear Regression, Ridge, Random Forest, dan Gradient Boosting.
+- Artifact model dibuat lokal oleh `python models/train_models.py` dan tidak disimpan di Git.
+- Feature engineering: `models/features.py`.
+- Metrik: `models/metrics_summary.json`.
 
-## 2. Dataset Pelatihan & Preprocessing
+## Batasan
 
-- **Sumber Data Primer:** `data/raw/Survey_Kos.csv` (**928 baris**, **35 kolom**) hasil survei Google Form Kos Kabupaten Toba.
-- **Staging & Warehouse:** `data/staging/survey_clean_v1.csv` (928 baris, 0 sel kosong) $\rightarrow$ `data/tobakost_survey_warehouse.db` (**923 baris** pada `fact_sewa_kos`).
-- **Subset Pelatihan (`model_ready = 1`):** **833 baris** konservatif (kos aktif, harga masih berlaku, lolos validasi dasar, bukan kandidat outlier IQR `Rp229.687,50`–`Rp1.142.187,50`, dan bukan duplikasi logis).
-- **Pembagian Data (*Train/Test Split*):** 80% Train (**666 baris**) / 20% Test (**167 baris**) dengan `random_state=42`, tersimpan secara reproducible di `data/split_ids.csv`.
+- Model terikat pada versi scikit-learn yang tercatat di bundle.
+- Data dummy tidak mewakili jaminan performa pada data riil.
+- Prediksi adalah estimasi, bukan penetapan harga.
+- Model riil harus dibuat sebagai versi baru dengan data quality report dan evaluasi subgroup.
 
----
+## Fitur dan dataset baseline (Issue #16)
 
-## 3. Algoritma yang Dibandingkan & Fitur
+**Target:** `harga_bulanan_norm` (Rp/bulan; harga tahunan sudah dibagi 12).
+**Data:** hanya baris `model_ready`. **Split:** 80/20, `random_state=42` (485 baris -> 388 train / 97 test).
 
-Empat algoritma regresi dilatih pada urutan fitur kanonik yang sama (`models/features.py`):
-1. **Linear Regression (Baseline)**
-2. **Ridge Regression (L2 Tuned)**
-3. **Random Forest Regressor (Tuned)**
-4. **Gradient Boosting / XGBoost (Tuned)**
+| Kelompok | Fitur | Alasan |
+|---|---|---|
+| Ukuran & lantai | `luas_kamar_m2`, `jumlah_lantai` | Spesifikasi fisik langsung memengaruhi tarif |
+| Fasilitas (17 biner) | AC, KM dalam, WiFi, parkir mobil, dapur, keamanan, listrik, perabot, kloset duduk, shower, water heater | Inti topik: spesifikasi fasilitas |
+| Wilayah | `kecamatan` (one-hot, drop_first) | Beda pasar antar kecamatan |
+| Penghuni, air, kapasitas, tempat makan | one-hot, drop_first | Konteks kos |
+| Aksesibilitas | 7 kolom `jarak_*` (km) | Inti topik: aksesibilitas lokasi |
+| Kontrol kontrak | `is_tahunan` | Harga tahunan/12 berbeda sistematis dari bulanan |
 
-Artifact model disimpan secara lokal melalui `python models/train_models.py` dan dicatat beserta versi `scikit-learn` pada `models/registry/model_manifest.json` serta `models/metrics_summary.json`.
+**Tidak dipakai:** `harga_sewa` (kebocoran target), kolom `pred_*`/`selisih_*`/`abs_error`/`status_kewajaran` (hasil model), `skor_kelengkapan_fasilitas` (kombinasi linear persis fasilitas, R2=1.0), `indeks_aksesibilitas_lokasi` (turunan jarak, R2=0.90), `tahun_mulai_sewa`, lat/long, kolom id.
 
 **Catatan:** isi keputusan akhir `is_tahunan` (kontrol vs hanya bulanan) setelah rapat tim.
 
@@ -49,10 +52,3 @@ Kategori ditentukan menggunakan ambang 6%:
 Kategori tersebut menunjukkan perbandingan harga aktual terhadap prediksi model, bukan bukti mutlak bahwa harga kos murah atau mahal di pasar. Model masih berbasis data dummy, sehingga hasilnya bersifat ilustratif dan perlu divalidasi dengan data riil.
 
 **Perbedaan dengan kalkulator API:** analitik dashboard menggunakan prediksi Random Forest untuk menentukan label kewajaran, sedangkan kalkulator API menggunakan model terpilih berdasarkan MAE pada test set. Label analitik tidak sama dengan hasil atau rentang estimasi kalkulator API.
----
-
-## 4. Keterbatasan & Etika Penggunaan (Limitations)
-
-- **Bukan Klaim Kausalitas Mutlak:** Simulasi penambahan fasilitas (`POST /api/simulate`) menunjukkan perubahan prediksi kondisional model berdasarkan distribusi data survei Kabupaten Toba, bukan jaminan kenaikan harga kausal secara mutlak di lapangan.
-- **Ketidakpastian Estimasi:** Setiap prediksi tunggal dilengkapi rentang ketidakpastian $\pm\text{MAE}$ (`range_min_rp` s.d. `range_max_rp`). Faktor mikro seperti kualitas bangunan fisik, ventilasi alami, atau negosiasi personal tidak sepenuhnya tertangkap dalam fitur tabular.
-- **Kompatibilitas Runtime:** Bundle `.pkl` terikat pada versi `scikit-learn` saat pelatihan. Jika versi lingkungan berubah, jalankan `python models/train_models.py` untuk memperbarui bundle dan manifest.
